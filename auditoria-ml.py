@@ -19,10 +19,6 @@ A diferença é calculada por:
 
 > **Diferença (%) = (1 - (Valor Recebido ÷ Valor da Venda)) × 100**
 
-Exemplo:  
-Se o produto foi vendido por **R$ 100** e o Mercado Livre repassou **R$ 70**,  
-a diferença é **30%**.
-
 ➡️ Vendas com diferença **acima de {margem_limite}%** serão sinalizadas como **anormais**.
 """
 )
