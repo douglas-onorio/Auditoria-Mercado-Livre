@@ -150,20 +150,24 @@ if uploaded_file:
         except Exception as e:
             st.error(f"Erro ao processar planilha de custos: {e}")
 
+    # === EXCLUI CANCELAMENTOS DO CÁLCULO ===
+    df_validas = df[df["Status"] != "🟦 Cancelamento Correto"]
+
     # === RESUMO ===
     total_vendas = len(df)
     fora_margem = (df["Status"] == "⚠️ Acima da Margem").sum()
     cancelamentos = (df["Status"] == "🟦 Cancelamento Correto").sum()
-    if custo_carregado:
-        lucro_total = df["Lucro_Liquido"].sum()
-        prejuizo_total = abs(df.loc[df["Lucro_Liquido"] < 0, "Lucro_Liquido"].sum())
-        margem_media = df["Margem_Final_%"].mean()
-    else:
-        lucro_total = df["Lucro_Real"].sum()
-        prejuizo_total = abs(df.loc[df["Lucro_Real"] < 0, "Lucro_Real"].sum())
-        margem_media = df["Margem_Liquida_%"].mean()
 
-    receita_total = df["Valor_Venda"].sum()
+    if custo_carregado:
+        lucro_total = df_validas["Lucro_Liquido"].sum()
+        prejuizo_total = abs(df_validas.loc[df_validas["Lucro_Liquido"] < 0, "Lucro_Liquido"].sum())
+        margem_media = df_validas["Margem_Final_%"].mean()
+    else:
+        lucro_total = df_validas["Lucro_Real"].sum()
+        prejuizo_total = abs(df_validas.loc[df_validas["Lucro_Real"] < 0, "Lucro_Real"].sum())
+        margem_media = df_validas["Margem_Liquida_%"].mean()
+
+    receita_total = df_validas["Valor_Venda"].sum()
 
     col1, col2, col3, col4, col5, col6 = st.columns(6)
     col1.metric("Total de Vendas", total_vendas)
@@ -173,30 +177,9 @@ if uploaded_file:
     col5.metric("Margem Média (%)", f"{margem_media:.2f}%")
     col6.metric("🔻 Prejuízo Total (R$)", f"{prejuizo_total:,.2f}")
 
-    # === DISCLAIMER COMPLEMENTAR ===
-    st.markdown(
-        """
-        <div style='font-size:13px; color:gray;'>
-        ⚙️ <b>Interpretação dos indicadores</b><br>
-        • <b>Total de Vendas:</b> quantidade total de registros válidos.<br>
-        • <b>Fora da Margem:</b> vendas cuja diferença excede o limite definido.<br>
-        • <b>Lucro Total (R$):</b> soma dos lucros reais das vendas analisadas.<br>
-        • <b>Prejuízo Total (R$):</b> soma dos lucros negativos convertidos em valor absoluto.<br>
-        • <b>Margem Média (%):</b> média simples das margens por item.<br><br>
-        🧮 <b>Diferença entre Margem e Markup:</b><br>
-        • <b>Margem:</b> (Lucro ÷ Valor de Venda) × 100 → mostra quanto do preço é lucro.<br>
-        • <b>Markup:</b> (Lucro ÷ Custo do Produto) × 100 → mostra quanto o preço supera o custo.<br>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    # === TABELA ===
-    st.markdown("---")
-    st.subheader("📋 Itens Avaliados")
-    st.dataframe(df, use_container_width=True)
-
     # === ALERTA DE PRODUTO ===
+    st.markdown("---")
+    st.subheader("🚨 Produtos Fora da Margem")
     df_alerta = df[df["Status"] == "⚠️ Acima da Margem"]
     if not df_alerta.empty:
         produto_critico = (
@@ -204,18 +187,50 @@ if uploaded_file:
             .size().reset_index(name="Ocorrências")
             .sort_values("Ocorrências", ascending=False).head(1)
         )
+        sku_critico = produto_critico.iloc[0]["SKU"]
+        produto_nome = produto_critico.iloc[0]["Produto"]
+        anuncio_critico = produto_critico.iloc[0]["Anuncio"]
+        ocorrencias = produto_critico.iloc[0]["Ocorrências"]
+
         st.warning(
-            f"🚨 Produto com mais vendas fora da margem: **{produto_critico.iloc[0]['Produto']}** "
-            f"(SKU: {produto_critico.iloc[0]['SKU']} | Anúncio: {produto_critico.iloc[0]['Anuncio']} | "
-            f"{produto_critico.iloc[0]['Ocorrências']} ocorrências)"
+            f"🚨 Produto com mais vendas fora da margem: **{produto_nome}** "
+            f"(SKU: {sku_critico} | Anúncio: {anuncio_critico} | {ocorrencias} ocorrências)"
+        )
+
+        exemplo = df_alerta[df_alerta["SKU"] == sku_critico].head(1)
+        if not exemplo.empty:
+            st.markdown("**🧾 Exemplo de venda afetada:**")
+            st.write(exemplo[[
+                "Venda", "Data", "Valor_Venda", "Valor_Recebido", "Tarifa_Venda",
+                "Tarifa_Envio", "Lucro_Real", "%Diferença"
+            ]])
+
+        vendas_afetadas = df_alerta[df_alerta["SKU"] == sku_critico]
+        st.markdown("**📄 Todas as vendas afetadas por esse produto:**")
+        st.dataframe(vendas_afetadas, use_container_width=True)
+
+        output_alerta = BytesIO()
+        with pd.ExcelWriter(output_alerta, engine="xlsxwriter") as writer:
+            vendas_afetadas.to_excel(writer, index=False, sheet_name="Fora_da_Margem")
+        output_alerta.seek(0)
+        st.download_button(
+            label="⬇️ Exportar Vendas Afetadas (Excel)",
+            data=output_alerta,
+            file_name=f"Vendas_Fora_da_Margem_{sku_critico}_{datetime.now().strftime('%d-%m-%Y_%H-%M-%S')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
     else:
         st.success("✅ Nenhum produto com vendas fora da margem no período.")
 
+    # === TABELAS ===
+    st.markdown("---")
+    st.subheader("📋 Itens Avaliados")
+    st.dataframe(df, use_container_width=True)
+
     # === RESUMO POR TIPO DE ANÚNCIO ===
     st.markdown("---")
     st.subheader("📦 Resumo Financeiro por Tipo de Anúncio")
-    resumo = df.groupby("Tipo_Anuncio").agg(
+    resumo = df_validas.groupby("Tipo_Anuncio").agg(
         Vendas=("Venda", "count"),
         Receita_Total=("Valor_Venda", "sum"),
         Lucro_Total=("Lucro_Liquido" if custo_carregado else "Lucro_Real", "sum"),
@@ -226,25 +241,7 @@ if uploaded_file:
     resumo["Margem_Média"] = resumo["Margem_Média"].round(2)
     st.dataframe(resumo, use_container_width=True)
 
-    # === FILTRO POR SKU ===
-    st.markdown("---")
-    sku_detalhe = st.text_input("🔎 Digite um SKU para detalhamento do cálculo:")
-    if sku_detalhe:
-        filtro = df[df["SKU"].astype(str) == sku_detalhe.strip()]
-        if filtro.empty:
-            st.warning("Nenhum registro encontrado para este SKU.")
-        else:
-            st.subheader(f"📊 Detalhamento do SKU {sku_detalhe}")
-            st.write(filtro[[
-                "Produto", "Valor_Venda", "Tarifa_Venda", "Tarifa_Envio",
-                "Custo_Embalagem", "Custo_Fiscal",
-                "Lucro_Bruto", "Lucro_Real",
-                "Custo_Produto" if "Custo_Produto" in filtro.columns else None,
-                "Lucro_Liquido" if "Lucro_Liquido" in filtro.columns else None,
-                "Margem_Final_%" if "Margem_Final_%" in filtro.columns else "Margem_Liquida_%"
-            ]].dropna(axis=1, how="all"))
-
-    # === EXPORTAÇÃO ===
+    # === EXPORTAÇÃO COMPLETA ===
     output = BytesIO()
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
         df.to_excel(writer, index=False, sheet_name="Auditoria", freeze_panes=(1, 0))
