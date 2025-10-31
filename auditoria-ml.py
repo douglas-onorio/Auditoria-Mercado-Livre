@@ -262,6 +262,26 @@ if uploaded_file:
                 "Unidades", "Margem_Liquida_%"
             ]].dropna(axis=1, how="all"))
 
+    # === VISUALIZAÇÃO DOS DADOS ANALISADOS ===
+st.markdown("---")
+st.subheader("📋 Itens Avaliados")
+
+st.dataframe(
+    df[
+        [
+            "Venda", "Data", "Produto", "SKU", "Tipo_Anuncio",
+            coluna_unidades, "Valor_Venda", "Valor_Recebido",
+            "Tarifa_Venda", "Tarifa_Envio", "Cancelamentos",
+            "Lucro_Real", "Margem_Liquida_%", "Status"
+        ]
+        if "SKU" in df.columns
+        else df.columns
+    ],
+    use_container_width=True,
+    height=450
+)
+
+
     # === EXPORTAÇÃO FINAL ===
     output = BytesIO()
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
