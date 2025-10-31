@@ -105,7 +105,7 @@ if uploaded_file:
     # Renomeia apenas o que consta no mapeamento
     df.rename(columns={c: col_map[c] for c in col_map if c in df.columns}, inplace=True)
 
-               # === AJUSTE DE PACOTES AGRUPADOS (Redistribuição de taxas) ===
+                   # === AJUSTE DE PACOTES AGRUPADOS (Redistribuição de taxas) ===
     import re
 
     linhas_para_excluir = []
@@ -123,17 +123,19 @@ if uploaded_file:
         if subset.empty:
             continue
 
-        # Captura valores totais da linha do pacote
-        total_venda = float(row.get("Receita por produtos (BRL)", 0) or 0)
+        # Captura valores totais da linha do pacote (usando os nomes já renomeados)
+        total_venda = float(row.get("Valor_Venda", 0) or 0)
         total_envio = float(row.get("Receita por envio (BRL)", 0) or 0)
-        total_tarifa = float(row.get("Tarifa de venda e impostos (BRL)", 0) or 0)
+        total_tarifa = float(row.get("Tarifa_Venda", 0) or 0)
         total_acrescimo = float(row.get("Receita por acréscimo no preço (pago pelo comprador)", 0) or 0)
 
-        soma_vendas = subset["Receita por produtos (BRL)"].sum() or 1
+        # Agora soma os valores do subset com base na nova coluna "Valor_Venda"
+        soma_vendas = subset["Valor_Venda"].sum() or 1
 
+        # Redistribui proporcionalmente
         for j in subset.index:
-            proporcao = subset.loc[j, "Receita por produtos (BRL)"] / soma_vendas
-            df.loc[j, "Tarifa de venda e impostos (BRL)"] = total_tarifa * proporcao
+            proporcao = subset.loc[j, "Valor_Venda"] / soma_vendas
+            df.loc[j, "Tarifa_Venda"] = total_tarifa * proporcao
             df.loc[j, "Receita por envio (BRL)"] = total_envio * proporcao
             df.loc[j, "Receita por acréscimo no preço (pago pelo comprador)"] = total_acrescimo * proporcao
 
