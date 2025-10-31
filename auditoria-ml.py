@@ -189,33 +189,33 @@ if uploaded_file:
         df.loc[i, "Tarifa_Venda"] = round(total_tarifas_calc, 2)
         df.loc[i, "Tarifa_Envio"] = 0.0
 
-        # === COMPLETA DADOS DE PACOTES COM SKUs E TÍTULOS AGRUPADOS ===
-    for i, row in df.iterrows():
-        estado = str(row.get("Estado", ""))
-        match = re.search(r"Pacote de (\d+) produtos", estado, flags=re.IGNORECASE)
-        if not match:
-            continue
+                # === COMPLETA DADOS DE PACOTES COM SKUs E TÍTULOS AGRUPADOS ===
+        for i, row in df.iterrows():
+            estado = str(row.get("Estado", ""))
+            match = re.search(r"Pacote de (\d+) produtos", estado, flags=re.IGNORECASE)
+            if not match:
+                continue
 
-        qtd = int(match.group(1))
-        subset = df.iloc[i + 1 : i + 1 + qtd].copy()
-        if subset.empty:
-            continue
+            qtd = int(match.group(1))
+            subset = df.iloc[i + 1 : i + 1 + qtd].copy()
+            if subset.empty:
+                continue
 
-        # Concatena SKUs e títulos dos filhos
-        skus = subset["SKU"].astype(str).replace("nan", "").unique().tolist()
-        produtos = subset["Produto"].astype(str).replace("nan", "").unique().tolist()
+            # Concatena SKUs e títulos dos filhos
+            skus = subset["SKU"].astype(str).replace("nan", "").unique().tolist()
+            produtos = subset["Produto"].astype(str).replace("nan", "").unique().tolist()
 
-        # Formata SKUs concatenando com hífens, sem duplicar zeros ou nulos
-        skus_formatados = [s for s in skus if s and s != "0"]
-        sku_concat = "-".join(skus_formatados)
+            # Formata SKUs concatenando com hífens, sem duplicar zeros ou nulos
+            skus_formatados = [s for s in skus if s and s != "0"]
+            sku_concat = "-".join(skus_formatados)
+            produto_concat = " + ".join([p for p in produtos if p])
 
-        produto_concat = " + ".join([p for p in produtos if p])
+            if sku_concat:
+                df.loc[i, "SKU"] = sku_concat
+            if produto_concat:
+                df.loc[i, "Produto"] = produto_concat
 
-        if sku_concat:
-            df.loc[i, "SKU"] = sku_concat
-        if produto_concat:
-            df.loc[i, "Produto"] = produto_concat
-
+    st.write("✅ Pacotes atualizados com SKU e Produto combinados:", df[df["Estado"].str.contains("Pacote", case=False, na=False)][["Venda", "SKU", "Produto"]])
 
     st.info("📦 Pacotes redistribuídos com base no preço unitário e tipo de anúncio.")
 
