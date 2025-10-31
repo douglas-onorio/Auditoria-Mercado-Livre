@@ -4,6 +4,8 @@ import pandas as pd
 from datetime import datetime
 from io import BytesIO
 import re
+import os
+os.makedirs("dados", exist_ok=True)
 
 st.set_page_config(page_title="📊 Auditoria de Vendas ML", layout="wide")
 st.title("📦 Auditoria Financeira Mercado Livre")
