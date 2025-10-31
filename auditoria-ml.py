@@ -6,17 +6,9 @@ from io import BytesIO
 import re
 import os
 from pathlib import Path
-
-from pathlib import Path
-try:
-    Path("dados").mkdir(exist_ok=True)
-except Exception:
-    pass
-    
-# Caminho seguro para salvar custos (funciona local e no Streamlit Cloud)
-from pathlib import Path
 import tempfile
 
+# === CRIAÇÃO SEGURA DO DIRETÓRIO ===
 try:
     BASE_DIR = Path("dados")
     BASE_DIR.mkdir(exist_ok=True)
@@ -24,7 +16,6 @@ except Exception:
     BASE_DIR = Path(tempfile.gettempdir())
 
 ARQUIVO_CUSTOS_SALVOS = BASE_DIR / "custos_salvos.xlsx"
-
 
 st.set_page_config(page_title="📊 Auditoria de Vendas ML", layout="wide")
 st.title("📦 Auditoria Financeira Mercado Livre")
@@ -51,8 +42,11 @@ def carregar_custos(uploaded_file=None):
     if uploaded_file:
         df_custos = pd.read_excel(uploaded_file)
         df_custos.columns = df_custos.columns.str.strip()
-        df_custos.to_excel(ARQUIVO_CUSTOS_SALVOS, index=False)
-        st.success("📥 Nova planilha de custos salva automaticamente!")
+        try:
+            df_custos.to_excel(ARQUIVO_CUSTOS_SALVOS, index=False)
+            st.success("📥 Nova planilha de custos salva automaticamente!")
+        except Exception:
+            st.warning("⚠️ Ambiente em modo protegido — custos não foram salvos permanentemente.")
         return df_custos
     elif ARQUIVO_CUSTOS_SALVOS.exists():
         st.info("📂 Custos carregados automaticamente do arquivo salvo.")
@@ -62,8 +56,11 @@ def carregar_custos(uploaded_file=None):
         return pd.DataFrame(columns=["SKU", "Produto", "Custo_Produto"])
 
 def salvar_custos(df):
-    df.to_excel(ARQUIVO_CUSTOS_SALVOS, index=False)
-    st.success("💾 Custos atualizados e salvos com sucesso!")
+    try:
+        df.to_excel(ARQUIVO_CUSTOS_SALVOS, index=False)
+        st.success("💾 Custos atualizados e salvos com sucesso!")
+    except Exception:
+        st.warning("⚠️ Ambiente em modo protegido — custos não foram salvos permanentemente.")
 
 uploaded_custo = st.sidebar.file_uploader("📦 Planilha de custos (opcional)", type=["xlsx"])
 custo_df = carregar_custos(uploaded_custo)
@@ -73,6 +70,7 @@ st.subheader("✏️ Edição de Custos (Persistente)")
 custos_editados = st.data_editor(custo_df, num_rows="dynamic")
 if st.button("💾 Salvar custos atualizados"):
     salvar_custos(custos_editados)
+
 
 # === UPLOAD DE VENDAS ===
 uploaded_file = st.file_uploader("Envie o arquivo Excel de vendas (.xlsx)", type=["xlsx"])
