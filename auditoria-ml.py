@@ -189,6 +189,31 @@ if uploaded_file:
         df.loc[i, "Tarifa_Venda"] = round(total_tarifas_calc, 2)
         df.loc[i, "Tarifa_Envio"] = 0.0
 
+        # === COMPLETA DADOS DE PACOTES COM SKUs E TÍTULOS AGRUPADOS ===
+    for i, row in df.iterrows():
+        estado = str(row.get("Estado", ""))
+        match = re.search(r"Pacote de (\d+) produtos", estado, flags=re.IGNORECASE)
+        if not match:
+            continue
+
+        qtd = int(match.group(1))
+        subset = df.iloc[i + 1 : i + 1 + qtd].copy()
+        if subset.empty:
+            continue
+
+        # Concatena SKUs e títulos dos filhos
+        skus = subset["SKU"].astype(str).replace("nan", "").unique().tolist()
+        produtos = subset["Produto"].astype(str).replace("nan", "").unique().tolist()
+
+        sku_concat = " + ".join([s for s in skus if s and s != "0"])
+        produto_concat = " + ".join([p for p in produtos if p])
+
+        if sku_concat:
+            df.loc[i, "SKU"] = sku_concat
+        if produto_concat:
+            df.loc[i, "Produto"] = produto_concat
+
+
     st.info("📦 Pacotes redistribuídos com base no preço unitário e tipo de anúncio.")
 
                         
