@@ -49,14 +49,27 @@ if uploaded_file:
     }
     df = df[[c for c in col_map.keys() if c in df.columns]].rename(columns=col_map)
 
-    # === COLUNA DE UNIDADES ===
-    possiveis_colunas_unidades = ["Unidades", "Quantidade", "Qtde", "Qtd"]
-    coluna_unidades = next((c for c in possiveis_colunas_unidades if c in df.columns), None)
-    if coluna_unidades:
-        df[coluna_unidades] = pd.to_numeric(df[coluna_unidades], errors="coerce").fillna(1).astype(int)
-    else:
-        df["Unidades"] = 1
-        coluna_unidades = "Unidades"
+    # === COLUNA DE UNIDADES (CORRIGIDA) ===
+possiveis_colunas_unidades = ["Unidades", "Quantidade", "Qtde", "Qtd"]
+coluna_unidades = next((c for c in possiveis_colunas_unidades if c in df.columns), None)
+
+if coluna_unidades:
+    # Remove espaços, quebras, traços e caracteres não numéricos
+    df[coluna_unidades] = (
+        df[coluna_unidades]
+        .astype(str)
+        .str.strip()
+        .replace({"": "1", "-": "1", "–": "1", "—": "1", "nan": "1"}, regex=True)
+        .str.extract(r"(\d+)", expand=False)  # pega apenas os dígitos
+        .fillna("1")
+        .astype(int)
+    )
+else:
+    df["Unidades"] = 1
+    coluna_unidades = "Unidades"
+
+st.caption(f"🧩 Coluna de unidades detectada e normalizada: {coluna_unidades}")
+
 
     # === CONVERSÕES ===
     for c in ["Valor_Venda", "Valor_Recebido", "Tarifa_Venda", "Tarifa_Envio", "Cancelamentos", "Preco_Unitario"]:
