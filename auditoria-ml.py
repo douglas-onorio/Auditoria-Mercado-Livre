@@ -124,15 +124,23 @@ if uploaded_file:
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0).abs()
 
-    # === AJUSTE SKU ===
+        # === AJUSTE SKU ===
     def limpar_sku(valor):
         if pd.isna(valor):
             return ""
+        valor = str(valor).strip()
+        # Remove qualquer formato numérico com vírgula, ponto ou decimal
+        valor = valor.replace(",", "").replace(".", "")
+        # Remove notações científicas (ex: 7.41e+03 → 7410)
         try:
-            return str(int(float(str(valor).replace(",", ".").strip())))
+            valor_float = float(valor)
+            valor_int = int(round(valor_float))
+            return str(valor_int)
         except:
-            return str(valor).strip()
+            return valor
+
     df["SKU"] = df["SKU"].apply(limpar_sku) if "SKU" in df.columns else ""
+
 
     # === AJUSTE VENDA ===
     def formatar_venda(valor):
