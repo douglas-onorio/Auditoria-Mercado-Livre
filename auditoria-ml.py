@@ -109,7 +109,9 @@ if uploaded_file:
             • <b>Custos adicionais:</b> embalagem fixa e custo fiscal (% configurável).<br>
             • <b>Lucro Real = Valor da venda − Tarifas ML − Custo de embalagem − Custo fiscal.</b><br><br>
             🔹 Etapas futuras: será possível anexar uma planilha com o custo real do produto 
-            (<i>SKU, PRODUTO, CUSTO, OBSERVAÇÕES</i>), para calcular automaticamente o Lucro Líquido, a Margem Final e o Markup.<br>
+            (<i>SKU, PRODUTO, CUSTO, OBSERVAÇÕES</i>), para calcular automaticamente o Lucro Líquido, a Margem Final e o Markup.<br><br>
+            🔸 <b>Observação adicional:</b> Todos os cálculos consideram a quantidade total de unidades vendidas por pedido, 
+            garantindo margens realistas. O custo de embalagem permanece fixo por transação.
             </div>
             """,
             unsafe_allow_html=True,
@@ -127,6 +129,15 @@ if uploaded_file:
         else "✅ Normal", axis=1
     )
 
+    # === UNIDADES ===
+    possiveis_colunas_unidades = ["Unidades", "Quantidade", "Qtde", "Qtd"]
+    coluna_unidades = next((c for c in possiveis_colunas_unidades if c in df.columns), None)
+    if coluna_unidades:
+        df[coluna_unidades] = pd.to_numeric(df[coluna_unidades], errors="coerce").fillna(1).astype(int)
+    else:
+        df["Unidades"] = 1
+        coluna_unidades = "Unidades"
+
     # === FINANCEIRO ===
     df["Custo_Embalagem"] = custo_embalagem
     df["Custo_Fiscal"] = (df["Valor_Venda"] * (custo_fiscal / 100)).round(2)
@@ -143,9 +154,13 @@ if uploaded_file:
             custo_df["SKU"] = custo_df["SKU"].astype(str).str.strip()
             custo_df.rename(columns={"CUSTO": "Custo_Produto"}, inplace=True)
             df = df.merge(custo_df[["SKU", "Custo_Produto"]], on="SKU", how="left")
-            df["Lucro_Liquido"] = df["Lucro_Real"] - df["Custo_Produto"].fillna(0)
+
+            # custo total baseado em unidades vendidas
+            df["Custo_Produto_Total"] = df["Custo_Produto"].fillna(0) * df[coluna_unidades]
+
+            df["Lucro_Liquido"] = df["Lucro_Real"] - df["Custo_Produto_Total"]
             df["Margem_Final_%"] = ((df["Lucro_Liquido"] / df["Valor_Venda"]) * 100).round(2)
-            df["Markup_%"] = ((df["Lucro_Liquido"] / df["Custo_Produto"]) * 100).round(2)
+            df["Markup_%"] = ((df["Lucro_Liquido"] / df["Custo_Produto_Total"]) * 100).round(2)
             custo_carregado = True
         except Exception as e:
             st.error(f"Erro ao processar planilha de custos: {e}")
