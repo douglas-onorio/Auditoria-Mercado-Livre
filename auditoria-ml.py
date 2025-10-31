@@ -258,6 +258,36 @@ if uploaded_file:
     col5.metric("Margem Média (%)", f"{margem_media:.2f}%")
     col6.metric("🔻 Prejuízo Total (R$)", f"{prejuizo_total:,.2f}")
 
+        # === ANÁLISE DE TIPOS DE ANÚNCIO ===
+    st.markdown("---")
+    st.subheader("📊 Análise por Tipo de Anúncio (Clássico x Premium)")
+
+    if "Tipo_Anuncio" in df.columns:
+        tipo_counts = df["Tipo_Anuncio"].value_counts().reset_index()
+        tipo_counts.columns = ["Tipo de Anúncio", "Quantidade"]
+        tipo_counts["% Participação"] = (tipo_counts["Quantidade"] / tipo_counts["Quantidade"].sum() * 100).round(2)
+
+        col1, col2 = st.columns(2)
+        col1.metric("Anúncios Clássicos", int(tipo_counts.loc[tipo_counts["Tipo de Anúncio"].str.contains("Clássico", case=False), "Quantidade"].sum()))
+        col2.metric("Anúncios Premium", int(tipo_counts.loc[tipo_counts["Tipo de Anúncio"].str.contains("Premium", case=False), "Quantidade"].sum()))
+
+        st.dataframe(tipo_counts, use_container_width=True)
+
+        # Exporta o resumo para Excel
+        output_tipos = BytesIO()
+        with pd.ExcelWriter(output_tipos, engine="xlsxwriter") as writer:
+            tipo_counts.to_excel(writer, index=False, sheet_name="Tipos_Anuncio")
+        output_tipos.seek(0)
+        st.download_button(
+            label="⬇️ Exportar Resumo de Tipos (Excel)",
+            data=output_tipos,
+            file_name=f"Resumo_Tipos_Anuncio_{datetime.now().strftime('%d-%m-%Y_%H-%M-%S')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+    else:
+        st.warning("⚠️ Nenhuma coluna de tipo de anúncio encontrada no arquivo enviado.")
+
+
     # === ALERTA DE PRODUTO ===
     st.markdown("---")
     st.subheader("🚨 Produtos Fora da Margem")
