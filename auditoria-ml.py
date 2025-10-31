@@ -71,7 +71,7 @@ if not custo_df.empty and "SKU" in custo_df.columns:
     custo_df["SKU"] = custo_df["SKU"].str.replace(r"[^\d]", "", regex=True)
 
 st.markdown("---")
-st.subheader("✏️ Edição de Custos (Persistente)")
+st.subheader("✏️ Edição de Custos")
 custos_editados = st.data_editor(custo_df, num_rows="dynamic")
 if st.button("💾 Salvar custos atualizados"):
     salvar_custos(custos_editados)
