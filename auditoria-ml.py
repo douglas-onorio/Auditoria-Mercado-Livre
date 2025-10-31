@@ -130,8 +130,9 @@ if uploaded_file:
         total_acrescimo = float(row.get("Receita por acréscimo no preço (pago pelo comprador)", 0) or 0)
 
         # --- Preço unitário real de cada item ---
+        col_preco_unitario = "Preco_Unitario" if "Preco_Unitario" in subset.columns else "Preço unitário de venda do anúncio (BRL)"
         subset["Preco_Unitario_Item"] = pd.to_numeric(
-            subset["Preço unitário de venda do anúncio (BRL)"], errors="coerce"
+            subset[col_preco_unitario], errors="coerce"
         ).fillna(0)
 
         soma_precos = subset["Preco_Unitario_Item"].sum() or qtd
