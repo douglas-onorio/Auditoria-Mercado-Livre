@@ -560,15 +560,19 @@ if uploaded_file:
         height=450
     )
 
-        # === EXPORTAÇÃO FINAL (colunas principais apenas) ===
+            # === EXPORTAÇÃO FINAL (colunas principais e financeiras) ===
     colunas_principais = [
         "Venda", "Data", "Produto", "SKU", "Tipo_Anuncio",
         "Unidades", "Valor_Venda", "Valor_Recebido",
         "Tarifa_Venda", "Tarifa_Envio", "Cancelamentos",
-        "Lucro_Real", "Margem_Liquida_%", "Status"
+        "Custo_Embalagem", "Custo_Fiscal", "Receita_Envio",
+        "Lucro_Bruto", "Lucro_Real", "Margem_Liquida_%",
+        "Custo_Produto", "Custo_Produto_Total",
+        "Lucro_Liquido", "Margem_Final_%", "Markup_%",
+        "Status"
     ]
 
-    # Mantém apenas colunas que realmente existem
+    # Mantém apenas as colunas que realmente existem
     colunas_exportar = [c for c in colunas_principais if c in df.columns]
     df_export = df[colunas_exportar].copy()
 
@@ -578,11 +582,12 @@ if uploaded_file:
     output.seek(0)
 
     st.download_button(
-        label="⬇️ Baixar Relatório XLSX",
+        label="⬇️ Baixar Relatório XLSX (colunas principais e financeiras)",
         data=output,
         file_name=f"Auditoria_ML_{datetime.now().strftime('%d-%m-%Y_%H-%M-%S')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
+
 
 
 else:
