@@ -431,6 +431,7 @@ if uploaded_file:
     if "Tipo_Anuncio" in df.columns:
         # Preenche valores nulos ou vazios antes de contar
         df["Tipo_Anuncio"] = df["Tipo_Anuncio"].fillna("Agrupado (Pacotes)").replace("", "Agrupado (Pacotes)")
+        
         tipo_counts = df["Tipo_Anuncio"].value_counts().reset_index()
         tipo_counts.columns = ["Tipo de Anúncio", "Quantidade"]
         tipo_counts["% Participação"] = (tipo_counts["Quantidade"] / tipo_counts["Quantidade"].sum() * 100).round(2)
