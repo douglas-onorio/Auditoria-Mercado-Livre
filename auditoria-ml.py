@@ -141,18 +141,57 @@ if uploaded_file:
     cancelamentos = (df["Status"] == "🟦 Cancelamento Correto").sum()
     if custo_carregado:
         lucro_total = df["Lucro_Liquido"].sum()
+        prejuizo_total = abs(df.loc[df["Lucro_Liquido"] < 0, "Lucro_Liquido"].sum())
         margem_media = df["Margem_Final_%"].mean()
     else:
         lucro_total = df["Lucro_Real"].sum()
+        prejuizo_total = abs(df.loc[df["Lucro_Real"] < 0, "Lucro_Real"].sum())
         margem_media = df["Margem_Liquida_%"].mean()
 
     receita_total = df["Valor_Venda"].sum()
-    col1, col2, col3, col4, col5 = st.columns(5)
+
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
     col1.metric("Total de Vendas", total_vendas)
     col2.metric("Fora da Margem", fora_margem)
     col3.metric("Cancelamentos Corretos", cancelamentos)
     col4.metric("Lucro Total (R$)", f"{lucro_total:,.2f}")
     col5.metric("Margem Média (%)", f"{margem_media:.2f}%")
+    col6.metric("🔻 Prejuízo Total (R$)", f"{prejuizo_total:,.2f}")
+
+    # === TABELA DE ITENS ===
+    st.markdown("---")
+    st.subheader("📋 Itens Avaliados")
+    st.dataframe(df, use_container_width=True)
+
+    # === ALERTA DE PRODUTO ===
+    df_alerta = df[df["Status"] == "⚠️ Acima da Margem"]
+    if not df_alerta.empty:
+        produto_critico = (
+            df_alerta.groupby(["SKU", "Anuncio", "Produto"])
+            .size().reset_index(name="Ocorrências")
+            .sort_values("Ocorrências", ascending=False).head(1)
+        )
+        st.warning(
+            f"🚨 Produto com mais vendas fora da margem: **{produto_critico.iloc[0]['Produto']}** "
+            f"(SKU: {produto_critico.iloc[0]['SKU']} | Anúncio: {produto_critico.iloc[0]['Anuncio']} | "
+            f"{produto_critico.iloc[0]['Ocorrências']} ocorrências)"
+        )
+    else:
+        st.success("✅ Nenhum produto com vendas fora da margem no período.")
+
+    # === RESUMO POR TIPO DE ANÚNCIO ===
+    st.markdown("---")
+    st.subheader("📦 Resumo Financeiro por Tipo de Anúncio")
+    resumo = df.groupby("Tipo_Anuncio").agg(
+        Vendas=("Venda", "count"),
+        Receita_Total=("Valor_Venda", "sum"),
+        Lucro_Total=("Lucro_Liquido" if custo_carregado else "Lucro_Real", "sum"),
+        Margem_Média=("Margem_Final_%" if custo_carregado else "Margem_Liquida_%", "mean"),
+    ).reset_index()
+    resumo["Receita_Total"] = resumo["Receita_Total"].round(2)
+    resumo["Lucro_Total"] = resumo["Lucro_Total"].round(2)
+    resumo["Margem_Média"] = resumo["Margem_Média"].round(2)
+    st.dataframe(resumo, use_container_width=True)
 
     # === FILTRO POR SKU ===
     st.markdown("---")
