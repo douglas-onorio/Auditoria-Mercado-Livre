@@ -137,7 +137,7 @@ if uploaded_file:
 
         soma_precos = subset["Preco_Unitario_Item"].sum() or qtd
 
-            # --- Redistribuição por item com base no tipo de anúncio e preço unitário ---
+                # --- Redistribuição por item com base no tipo de anúncio e preço unitário ---
 
     def calcular_custo_fixo(preco_unit):
         """Custo fixo ML conforme faixa de preço."""
@@ -160,22 +160,28 @@ if uploaded_file:
         else:
             return 0.12  # Clássico por padrão
 
+    # --- Para cada item dentro do pacote ---
     for j in subset.index:
         preco_unit = float(subset.loc[j, "Preco_Unitario_Item"] or 0)
         tipo_anuncio = subset.loc[j, "Tipo_Anuncio"]
 
-        # --- Cálculo detalhado da tarifa ---
+        # --- Calcula tarifa individual (custo fixo + % do tipo de anúncio) ---
         perc = calcular_percentual(tipo_anuncio)
         custo_fixo = calcular_custo_fixo(preco_unit)
         tarifa_individual = round(preco_unit * perc + custo_fixo, 4)
 
-        # --- Redistribuição dos valores financeiros do pacote ---
-        proporcao = preco_unit / soma_precos
-        df.loc[j, "Valor_Venda"] = total_venda * proporcao
-        df.loc[j, "Valor_Recebido"] = total_recebido * proporcao
+        # --- Atualiza valores nas linhas dos produtos ---
+        df.loc[j, "Valor_Venda"] = preco_unit
         df.loc[j, "Tarifa_Venda"] = tarifa_individual
+
+        # --- Mantém proporcionalidade no restante ---
+        proporcao = preco_unit / soma_precos
+        df.loc[j, "Valor_Recebido"] = total_recebido * proporcao
         df.loc[j, "Tarifa_Envio"] = 0.0
         df.loc[j, "Receita por acréscimo no preço (pago pelo comprador)"] = total_acrescimo * proporcao
+
+    # --- Marca o pacote apenas como processado ---
+    df.loc[i, "Estado"] = f"{estado} (processado)"
 
     # --- Marca o pacote como processado (fora do loop interno) ---
     df.loc[i, "Estado"] = f"{estado} (processado)"
