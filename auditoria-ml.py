@@ -105,26 +105,7 @@ if uploaded_file:
     # Renomeia apenas o que consta no mapeamento
     df.rename(columns={c: col_map[c] for c in col_map if c in df.columns}, inplace=True)
 
-    # === COLUNA DE UNIDADES ===
-    possiveis_colunas_unidades = ["Unidades", "Quantidade", "Qtde", "Qtd"]
-    coluna_unidades = next((c for c in possiveis_colunas_unidades if c in df.columns), None)
-    if coluna_unidades:
-        df[coluna_unidades] = (
-            df[coluna_unidades]
-            .astype(str)
-            .str.strip()
-            .replace({"": "1", "-": "1", "–": "1", "—": "1", "nan": "1"}, regex=True)
-            .str.extract(r"(\d+)", expand=False)
-            .fillna("1")
-            .astype(int)
-        )
-    else:
-        df["Unidades"] = 1
-        coluna_unidades = "Unidades"
-
-    st.caption(f"🧩 Coluna de unidades detectada e normalizada: **{coluna_unidades}**")
-
-    # === AJUSTE DE PACOTES AGRUPADOS (Redistribuição de taxas) ===
+     # === AJUSTE DE PACOTES AGRUPADOS (Redistribuição de taxas) ===
 import re
 
 linhas_para_excluir = []
@@ -161,6 +142,24 @@ if linhas_para_excluir:
     df = df.drop(index=linhas_para_excluir).reset_index(drop=True)
     st.info(f"📦 Pacotes agrupados detectados e redistribuídos automaticamente ({len(linhas_para_excluir)} linhas de pacote removidas).")
 
+    # === COLUNA DE UNIDADES ===
+    possiveis_colunas_unidades = ["Unidades", "Quantidade", "Qtde", "Qtd"]
+    coluna_unidades = next((c for c in possiveis_colunas_unidades if c in df.columns), None)
+    if coluna_unidades:
+        df[coluna_unidades] = (
+            df[coluna_unidades]
+            .astype(str)
+            .str.strip()
+            .replace({"": "1", "-": "1", "–": "1", "—": "1", "nan": "1"}, regex=True)
+            .str.extract(r"(\d+)", expand=False)
+            .fillna("1")
+            .astype(int)
+        )
+    else:
+        df["Unidades"] = 1
+        coluna_unidades = "Unidades"
+
+    st.caption(f"🧩 Coluna de unidades detectada e normalizada: **{coluna_unidades}**") 
 
     # === CONVERSÕES ===
     for c in ["Valor_Venda", "Valor_Recebido", "Tarifa_Venda", "Tarifa_Envio", "Cancelamentos", "Preco_Unitario"]:
