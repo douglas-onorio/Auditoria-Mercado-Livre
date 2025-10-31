@@ -205,7 +205,10 @@ if uploaded_file:
         skus = subset["SKU"].astype(str).replace("nan", "").unique().tolist()
         produtos = subset["Produto"].astype(str).replace("nan", "").unique().tolist()
 
-        sku_concat = " + ".join([s for s in skus if s and s != "0"])
+        # Formata SKUs concatenando com hífens, sem duplicar zeros ou nulos
+        skus_formatados = [s for s in skus if s and s != "0"]
+        sku_concat = "-".join(skus_formatados)
+
         produto_concat = " + ".join([p for p in produtos if p])
 
         if sku_concat:
