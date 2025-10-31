@@ -137,14 +137,46 @@ if uploaded_file:
 
         soma_precos = subset["Preco_Unitario_Item"].sum() or qtd
 
-        # --- Redistribui proporcionalmente ---
-        for j in subset.index:
-            proporcao = subset.loc[j, "Preco_Unitario_Item"] / soma_precos
-            df.loc[j, "Valor_Venda"] = total_venda * proporcao
-            df.loc[j, "Valor_Recebido"] = total_recebido * proporcao
-            df.loc[j, "Tarifa_Venda"] = total_tarifa * proporcao
-            df.loc[j, "Tarifa_Envio"] = total_envio * proporcao
-            df.loc[j, "Receita por acréscimo no preço (pago pelo comprador)"] = total_acrescimo * proporcao
+        # --- Redistribuição por item com base no tipo de anúncio e preço unitário ---
+
+def calcular_custo_fixo(preco_unit):
+    """Custo fixo ML conforme faixa de preço."""
+    if preco_unit < 12.5:
+        return preco_unit * 0.5
+    elif preco_unit < 30:
+        return 6.25
+    elif preco_unit < 50:
+        return 6.50
+    elif preco_unit < 79:
+        return 6.75
+    else:
+        return 0.0  # acima de 79 entra na regra de frete grátis
+
+def calcular_percentual(tipo_anuncio):
+    """Percentual de tarifa conforme tipo de anúncio."""
+    tipo = str(tipo_anuncio).strip().lower()
+    if "premium" in tipo:
+        return 0.17
+    else:
+        return 0.12  # Clássico por padrão
+
+for j in subset.index:
+    preco_unit = float(subset.loc[j, "Preco_Unitario_Item"] or 0)
+    tipo_anuncio = subset.loc[j, "Tipo_Anuncio"]
+
+    # --- Cálculo detalhado da tarifa ---
+    perc = calcular_percentual(tipo_anuncio)
+    custo_fixo = calcular_custo_fixo(preco_unit)
+    tarifa_individual = round(preco_unit * perc + custo_fixo, 4)
+
+    # --- Redistribuição dos valores financeiros do pacote ---
+    proporcao = preco_unit / soma_precos
+    df.loc[j, "Valor_Venda"] = total_venda * proporcao
+    df.loc[j, "Valor_Recebido"] = total_recebido * proporcao
+    df.loc[j, "Tarifa_Venda"] = tarifa_individual
+    df.loc[j, "Tarifa_Envio"] = 0.0  # controlado separadamente
+    df.loc[j, "Receita por acréscimo no preço (pago pelo comprador)"] = total_acrescimo * proporcao
+
 
         # --- Marca o pacote como processado (mas mantém a linha) ---
         df.loc[i, "Estado"] = f"{estado} (processado)"
