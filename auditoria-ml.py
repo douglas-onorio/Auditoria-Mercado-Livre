@@ -105,8 +105,17 @@ if uploaded_file:
     # Renomeia apenas o que consta no mapeamento
     df.rename(columns={c: col_map[c] for c in col_map if c in df.columns}, inplace=True)
 
-                               # === AJUSTE DE PACOTES AGRUPADOS (usando preço unitário real dos itens) ===
+        # === AJUSTE DE PACOTES AGRUPADOS (com detecção automática do preço unitário) ===
     import re
+
+    possiveis_colunas_preco = [
+        "Preço unitário de venda do anúncio (BRL)",
+        "Preço unitário de venda do anúncio (R$)",
+        "Preço unitário de venda (BRL)",
+        "Preço unitário (BRL)",
+        "Preço unitário (R$)"
+    ]
+    coluna_preco = next((c for c in possiveis_colunas_preco if c in df.columns), None)
 
     for i, row in df.iterrows():
         estado = str(row.get("Estado", ""))
@@ -119,38 +128,32 @@ if uploaded_file:
         if subset.empty:
             continue
 
-        # --- Totais da linha do pacote ---
         total_venda = float(row.get("Valor_Venda", 0) or 0)
+        total_recebido = float(row.get("Valor_Recebido", 0) or 0)
         total_envio = float(row.get("Receita por envio (BRL)", 0) or 0)
         total_tarifa = float(row.get("Tarifa_Venda", 0) or 0)
         total_acrescimo = float(row.get("Receita por acréscimo no preço (pago pelo comprador)", 0) or 0)
-        total_recebido = float(row.get("Valor_Recebido", 0) or 0)
 
-        # --- Cálculo de proporção com base no preço unitário dos itens ---
-        if "Preço unitário de venda do anúncio (BRL)" in subset.columns:
-            subset["Preco_Unitario_Item"] = pd.to_numeric(subset["Preço unitário de venda do anúncio (BRL)"], errors="coerce").fillna(0)
+        if coluna_preco:
+            subset["Preco_Unitario_Item"] = pd.to_numeric(subset[coluna_preco], errors="coerce").fillna(0)
         else:
             subset["Preco_Unitario_Item"] = 1
 
-        soma_preco_unitario = subset["Preco_Unitario_Item"].sum() or qtd
+        soma_preco = subset["Preco_Unitario_Item"].sum() or qtd
 
-        # --- Redistribuição proporcional pelo preço unitário ---
         for j in subset.index:
-            proporcao = subset.loc[j, "Preco_Unitario_Item"] / soma_preco_unitario
+            prop = subset.loc[j, "Preco_Unitario_Item"] / soma_preco
+            df.loc[j, "Valor_Venda"] = total_venda * prop
+            df.loc[j, "Valor_Recebido"] = total_recebido * prop
+            df.loc[j, "Tarifa_Venda"] = total_tarifa * prop
+            df.loc[j, "Tarifa_Envio"] = total_envio * prop
+            df.loc[j, "Receita por acréscimo no preço (pago pelo comprador)"] = total_acrescimo * prop
 
-            df.loc[j, "Valor_Venda"] = total_venda * proporcao
-            df.loc[j, "Valor_Recebido"] = total_recebido * proporcao
-            df.loc[j, "Tarifa_Venda"] = total_tarifa * proporcao
-            df.loc[j, "Tarifa_Envio"] = total_envio * proporcao
-            df.loc[j, "Receita por acréscimo no preço (pago pelo comprador)"] = total_acrescimo * proporcao
-
-        # --- Marca o pacote como processado ---
-        df.loc[i, "Estado"] = f"{estado} (processado)"
         df.loc[i, ["Valor_Venda", "Valor_Recebido", "Tarifa_Venda", "Tarifa_Envio"]] = 0
+        df.loc[i, "Estado"] = f"{estado} (processado)"
 
-    st.info("📦 Redistribuição concluída: pacotes ajustados com base nos preços unitários reais dos produtos.")
-
-
+    st.info("📦 Pacotes redistribuídos com base no preço unitário real dos produtos.")
+                           
 
     # === COLUNA DE UNIDADES ===
     possiveis_colunas_unidades = ["Unidades", "Quantidade", "Qtde", "Qtd"]
