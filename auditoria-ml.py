@@ -227,6 +227,24 @@ if uploaded_file:
     st.subheader("📋 Itens Avaliados")
     st.dataframe(df, use_container_width=True)
 
+    # === CONSULTA DE SKU UNITÁRIO ===
+    st.markdown("---")
+    st.subheader("🔎 Conferência Manual de SKU")
+    sku_detalhe = st.text_input("Digite o SKU para detalhar o cálculo:")
+    if sku_detalhe:
+        filtro = df[df["SKU"].astype(str) == sku_detalhe.strip()]
+        if filtro.empty:
+            st.warning("Nenhum registro encontrado para este SKU.")
+        else:
+            st.write(filtro[[
+                "Produto", "Valor_Venda", "Tarifa_Venda", "Tarifa_Envio",
+                "Custo_Embalagem", "Custo_Fiscal",
+                "Lucro_Bruto", "Lucro_Real",
+                "Custo_Produto" if "Custo_Produto" in filtro.columns else None,
+                "Lucro_Liquido" if "Lucro_Liquido" in filtro.columns else None,
+                "Margem_Final_%" if "Margem_Final_%" in filtro.columns else "Margem_Liquida_%"
+            ]].dropna(axis=1, how="all"))
+
     # === RESUMO POR TIPO DE ANÚNCIO ===
     st.markdown("---")
     st.subheader("📦 Resumo Financeiro por Tipo de Anúncio")
