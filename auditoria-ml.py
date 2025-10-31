@@ -210,12 +210,27 @@ if uploaded_file:
         else "✅ Normal", axis=1
     )
 
-    # === FINANCEIRO ===
+       # === FINANCEIRO ===
     df["Custo_Embalagem"] = custo_embalagem
     df["Custo_Fiscal"] = (df["Valor_Venda"] * (custo_fiscal / 100)).round(2)
-    df["Lucro_Bruto"] = df["Valor_Venda"] - (df["Tarifa_Venda"] + df["Tarifa_Envio"])
-    df["Lucro_Real"] = df["Lucro_Bruto"] - (df["Custo_Embalagem"] + df["Custo_Fiscal"])
+
+    # Se houver receita de envio, soma ao cálculo (senão, considera 0)
+    if "Receita por envio (BRL)" in df.columns:
+        df["Receita_Envio"] = pd.to_numeric(df["Receita por envio (BRL)"], errors="coerce").fillna(0)
+    else:
+        df["Receita_Envio"] = 0
+
+    # Lucro Bruto agora considera a receita de envio
+    df["Lucro_Bruto"] = (
+        df["Valor_Venda"] + df["Receita_Envio"] - (df["Tarifa_Venda"] + df["Tarifa_Envio"])
+    ).round(2)
+
+    df["Lucro_Real"] = (
+        df["Lucro_Bruto"] - (df["Custo_Embalagem"] + df["Custo_Fiscal"])
+    ).round(2)
+
     df["Margem_Liquida_%"] = ((df["Lucro_Real"] / df["Valor_Venda"]) * 100).round(2)
+
 
     # === PLANILHA DE CUSTOS ===
     custo_carregado = False
