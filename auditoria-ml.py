@@ -182,14 +182,12 @@ if uploaded_file:
     df.loc[i, ["Valor_Venda", "Valor_Recebido", "Tarifa_Venda", "Tarifa_Envio"]] = 0
 
 
-        # --- Marca o pacote como processado (mas mantém a linha) ---
-        df.loc[i, "Estado"] = f"{estado} (processado)"
-        df.loc[i, ["Valor_Venda", "Valor_Recebido", "Tarifa_Venda", "Tarifa_Envio"]] = 0
+    # --- Marca o pacote como processado (mas mantém a linha) ---
+    df.loc[i, "Estado"] = f"{estado} (processado)"
+    df.loc[i, ["Valor_Venda", "Valor_Recebido", "Tarifa_Venda", "Tarifa_Envio"]] = 0
 
     st.info("📦 Pacotes redistribuídos com base no preço unitário real dos produtos.")
-
-                           
-
+                        
     # === COLUNA DE UNIDADES ===
     possiveis_colunas_unidades = ["Unidades", "Quantidade", "Qtde", "Qtd"]
     coluna_unidades = next((c for c in possiveis_colunas_unidades if c in df.columns), None)
