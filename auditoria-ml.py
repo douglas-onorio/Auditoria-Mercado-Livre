@@ -13,7 +13,18 @@ try:
 except Exception:
     pass
     
-ARQUIVO_CUSTOS_SALVOS = Path("dados/custos_salvos.xlsx")
+# Caminho seguro para salvar custos (funciona local e no Streamlit Cloud)
+from pathlib import Path
+import tempfile
+
+try:
+    BASE_DIR = Path("dados")
+    BASE_DIR.mkdir(exist_ok=True)
+except Exception:
+    BASE_DIR = Path(tempfile.gettempdir())
+
+ARQUIVO_CUSTOS_SALVOS = BASE_DIR / "custos_salvos.xlsx"
+
 
 st.set_page_config(page_title="📊 Auditoria de Vendas ML", layout="wide")
 st.title("📦 Auditoria Financeira Mercado Livre")
