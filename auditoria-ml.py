@@ -244,23 +244,61 @@ if uploaded_file:
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0).abs()
 
-     # === AJUSTE SKU ===
+         # === AJUSTE SKU ===
     def limpar_sku(valor):
         if pd.isna(valor):
             return ""
         valor = str(valor).strip()
-
-        # Remove espaços, pontos, vírgulas e símbolos
-        valor = re.sub(r"[^\d]", "", valor)
-
-        # Remove zeros à esquerda, mas mantém "0" se for o único dígito
-        valor = valor.lstrip("0") or "0"
-
-        # Garante formato limpo (apenas números)
+        # Mantém hífens (para pacotes) e remove apenas outros caracteres
+        valor = re.sub(r"[^\d\-]", "", valor)
+        # Evita limpar SKUs compostos (como 3888-3937)
+        if "-" not in valor:
+            valor = valor.lstrip("0") or "0"
         return valor
 
     if "SKU" in df.columns:
         df["SKU"] = df["SKU"].apply(limpar_sku)
+
+    # === COMPLETA DADOS DE PACOTES COM SKUs E TÍTULOS AGRUPADOS ===
+    for i, row in df.iterrows():
+        estado = str(row.get("Estado", ""))
+        match = re.search(r"Pacote de (\d+) produtos", estado, flags=re.IGNORECASE)
+        if not match:
+            continue
+
+        qtd = int(match.group(1))
+        subset = df.iloc[i + 1 : i + 1 + qtd].copy()
+        if subset.empty:
+            continue
+
+        # Concatena SKUs e títulos dos filhos
+        skus = subset["SKU"].astype(str).replace("nan", "").unique().tolist()
+        produtos = subset["Produto"].astype(str).replace("nan", "").unique().tolist()
+
+        # Formata SKUs concatenando com hífens, sem duplicar zeros ou nulos
+        skus_formatados = [s for s in skus if s and s != "0"]
+        sku_concat = "-".join(skus_formatados)
+
+        # Se houver mais de dois produtos, simplifica o nome
+        if len(produtos) > 2:
+            produto_concat = f"{produtos[0]} + {len(produtos)-1} outros"
+        else:
+            produto_concat = " + ".join([p for p in produtos if p])
+
+        # Atualiza apenas se houver algo válido
+        if sku_concat:
+            df.loc[i, "SKU"] = sku_concat
+        if produto_concat:
+            df.loc[i, "Produto"] = produto_concat
+
+    # Exibe resumo de conferência
+    st.write("✅ Pacotes processados (SKU e Produto combinados):")
+    st.dataframe(
+        df[df["Estado"].str.contains("Pacote", case=False, na=False)][["Venda", "SKU", "Produto"]],
+        use_container_width=True,
+        height=200
+    )
+
 
     # === AJUSTE VENDA ===
     def formatar_venda(valor):
