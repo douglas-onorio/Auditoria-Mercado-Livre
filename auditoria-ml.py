@@ -100,7 +100,7 @@ if uploaded_file:
             • <b>Custos adicionais:</b> embalagem fixa e custo fiscal (% configurável).<br>
             • <b>Lucro Real = Valor da venda − Tarifas ML − Custo de embalagem − Custo fiscal.</b><br><br>
             🔹 Etapas futuras: será possível anexar uma planilha com o custo real do produto 
-            (<i>SKU, PRODUTO, CUSTO, OBSERVAÇÕES</i>), para calcular automaticamente o Lucro Líquido e a Margem Final.<br>
+            (<i>SKU, PRODUTO, CUSTO, OBSERVAÇÕES</i>), para calcular automaticamente o Lucro Líquido, a Margem Final e o Markup.<br>
             </div>
             """,
             unsafe_allow_html=True,
@@ -127,7 +127,7 @@ if uploaded_file:
     df["Lucro_Real"] = df["Lucro_Bruto"] - (df["Custo_Embalagem"] + df["Custo_Fiscal"])
     df["Margem_Liquida_%"] = ((df["Lucro_Real"] / df["Valor_Venda"]) * 100).round(2)
 
-    # === FUTURA INTEGRAÇÃO DE CUSTO ===
+    # === PLANILHA DE CUSTOS ===
     if uploaded_custo:
         try:
             custo_df = pd.read_excel(uploaded_custo)
@@ -137,6 +137,7 @@ if uploaded_file:
             df = df.merge(custo_df[["SKU", "Custo_Produto"]], on="SKU", how="left")
             df["Lucro_Liquido"] = df["Lucro_Real"] - df["Custo_Produto"].fillna(0)
             df["Margem_Final_%"] = ((df["Lucro_Liquido"] / df["Valor_Venda"]) * 100).round(2)
+            df["Markup_%"] = ((df["Lucro_Liquido"] / df["Custo_Produto"]) * 100).round(2)
         except Exception as e:
             st.error(f"Erro ao processar planilha de custos: {e}")
 
@@ -153,6 +154,23 @@ if uploaded_file:
     col3.metric("Cancelamentos Corretos", cancelamentos)
     col4.metric("Lucro Total (R$)", f"{lucro_total:,.2f}")
     col5.metric("Margem Média (%)", f"{margem_media:.2f}%")
+
+    # === DISCLAIMER COMPLEMENTAR ===
+    st.markdown(
+        """
+        <div style='font-size:13px; color:gray;'>
+        ⚙️ <b>Interpretação dos indicadores</b><br>
+        • <b>Total de Vendas:</b> quantidade total de registros válidos.<br>
+        • <b>Fora da Margem:</b> vendas cuja diferença excede o limite definido.<br>
+        • <b>Lucro Total (R$):</b> soma dos lucros reais das vendas analisadas.<br>
+        • <b>Margem Média (%):</b> média simples das margens por item.<br><br>
+        🧮 <b>Diferença entre Margem e Markup:</b><br>
+        • <b>Margem:</b> (Lucro ÷ Valor de Venda) × 100 → mostra quanto do preço é lucro.<br>
+        • <b>Markup:</b> (Lucro ÷ Custo do Produto) × 100 → mostra quanto o preço supera o custo.<br>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     # === TABELA ===
     st.markdown("---")
