@@ -65,6 +65,11 @@ def salvar_custos(df):
 uploaded_custo = st.sidebar.file_uploader("📦 Planilha de custos (opcional)", type=["xlsx"])
 custo_df = carregar_custos(uploaded_custo)
 
+# === AJUSTE VISUAL DE SKUS EM CUSTOS ===
+if not custo_df.empty and "SKU" in custo_df.columns:
+    custo_df["SKU"] = custo_df["SKU"].astype(str)
+    custo_df["SKU"] = custo_df["SKU"].str.replace(r"[^\d]", "", regex=True)
+
 st.markdown("---")
 st.subheader("✏️ Edição de Custos (Persistente)")
 custos_editados = st.data_editor(custo_df, num_rows="dynamic")
