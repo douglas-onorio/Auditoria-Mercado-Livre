@@ -99,6 +99,21 @@ if uploaded_file:
     if pd.notna(data_min) and pd.notna(data_max):
         periodo_texto = f"{data_min.strftime('%d-%m-%Y')}_a_{data_max.strftime('%d-%m-%Y')}"
         st.info(f"📅 **Dados da planilha:** {data_min.strftime('%d/%m/%Y')} até {data_max.strftime('%d/%m/%Y')}")
+        st.markdown(
+            f"""
+            <div style='font-size:13px; color:gray;'>
+            ⚖️ <b>Critérios e metodologia dos cálculos</b><br><br>
+            Todos os valores apresentados são baseados nos dados reais do Mercado Livre.<br>
+            • <b>Tarifa de venda e impostos (BRL):</b> inclui o custo fixo e a comissão do tipo de anúncio.<br>
+            • <b>Tarifas de envio (BRL):</b> representam o frete pago pelo vendedor.<br>
+            • <b>Custos adicionais:</b> embalagem fixa e custo fiscal (% configurável).<br>
+            • <b>Lucro Real = Valor da venda − Tarifas ML − Custo de embalagem − Custo fiscal.</b><br><br>
+            🔹 Etapas futuras: será possível anexar uma planilha com o custo real do produto 
+            (<i>SKU, PRODUTO, CUSTO, OBSERVAÇÕES</i>), para calcular automaticamente o Lucro Líquido, a Margem Final e o Markup.<br>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
     df["Data"] = df["Data"].dt.strftime("%d/%m/%Y %H:%M")
 
     # === AUDITORIA ===
@@ -158,7 +173,25 @@ if uploaded_file:
     col5.metric("Margem Média (%)", f"{margem_media:.2f}%")
     col6.metric("🔻 Prejuízo Total (R$)", f"{prejuizo_total:,.2f}")
 
-    # === TABELA DE ITENS ===
+    # === DISCLAIMER COMPLEMENTAR ===
+    st.markdown(
+        """
+        <div style='font-size:13px; color:gray;'>
+        ⚙️ <b>Interpretação dos indicadores</b><br>
+        • <b>Total de Vendas:</b> quantidade total de registros válidos.<br>
+        • <b>Fora da Margem:</b> vendas cuja diferença excede o limite definido.<br>
+        • <b>Lucro Total (R$):</b> soma dos lucros reais das vendas analisadas.<br>
+        • <b>Prejuízo Total (R$):</b> soma dos lucros negativos convertidos em valor absoluto.<br>
+        • <b>Margem Média (%):</b> média simples das margens por item.<br><br>
+        🧮 <b>Diferença entre Margem e Markup:</b><br>
+        • <b>Margem:</b> (Lucro ÷ Valor de Venda) × 100 → mostra quanto do preço é lucro.<br>
+        • <b>Markup:</b> (Lucro ÷ Custo do Produto) × 100 → mostra quanto o preço supera o custo.<br>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # === TABELA ===
     st.markdown("---")
     st.subheader("📋 Itens Avaliados")
     st.dataframe(df, use_container_width=True)
