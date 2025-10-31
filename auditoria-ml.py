@@ -49,6 +49,15 @@ if uploaded_file:
     }
     df = df[[c for c in col_map.keys() if c in df.columns]].rename(columns=col_map)
 
+    # === COLUNA DE UNIDADES ===
+    possiveis_colunas_unidades = ["Unidades", "Quantidade", "Qtde", "Qtd"]
+    coluna_unidades = next((c for c in possiveis_colunas_unidades if c in df.columns), None)
+    if coluna_unidades:
+        df[coluna_unidades] = pd.to_numeric(df[coluna_unidades], errors="coerce").fillna(1).astype(int)
+    else:
+        df["Unidades"] = 1
+        coluna_unidades = "Unidades"
+
     # === CONVERSÕES ===
     for c in ["Valor_Venda", "Valor_Recebido", "Tarifa_Venda", "Tarifa_Envio", "Cancelamentos", "Preco_Unitario"]:
         df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0).abs()
@@ -108,10 +117,9 @@ if uploaded_file:
             • <b>Tarifas de envio (BRL):</b> representam o frete pago pelo vendedor.<br>
             • <b>Custos adicionais:</b> embalagem fixa e custo fiscal (% configurável).<br>
             • <b>Lucro Real = Valor da venda − Tarifas ML − Custo de embalagem − Custo fiscal.</b><br><br>
-            🔹 Etapas futuras: será possível anexar uma planilha com o custo real do produto 
-            (<i>SKU, PRODUTO, CUSTO, OBSERVAÇÕES</i>), para calcular automaticamente o Lucro Líquido, a Margem Final e o Markup.<br><br>
-            🔸 <b>Observação adicional:</b> Todos os cálculos consideram a quantidade total de unidades vendidas por pedido, 
-            garantindo margens realistas. O custo de embalagem permanece fixo por transação.
+            🔹 Agora os cálculos consideram a <b>quantidade total de unidades vendidas</b> por pedido,
+            garantindo que margens e lucros reflitam corretamente o volume real.<br>
+            O custo de embalagem permanece fixo por venda, independente da quantidade.<br>
             </div>
             """,
             unsafe_allow_html=True,
@@ -129,17 +137,8 @@ if uploaded_file:
         else "✅ Normal", axis=1
     )
 
-    # === UNIDADES ===
-    possiveis_colunas_unidades = ["Unidades", "Quantidade", "Qtde", "Qtd"]
-    coluna_unidades = next((c for c in possiveis_colunas_unidades if c in df.columns), None)
-    if coluna_unidades:
-        df[coluna_unidades] = pd.to_numeric(df[coluna_unidades], errors="coerce").fillna(1).astype(int)
-    else:
-        df["Unidades"] = 1
-        coluna_unidades = "Unidades"
-
-    # === FINANCEIRO ===
-    df["Custo_Embalagem"] = custo_embalagem
+    # === FINANCEIRO (ATUALIZADO COM UNIDADES) ===
+    df["Custo_Embalagem"] = custo_embalagem  # fixo
     df["Custo_Fiscal"] = (df["Valor_Venda"] * (custo_fiscal / 100)).round(2)
     df["Lucro_Bruto"] = df["Valor_Venda"] - (df["Tarifa_Venda"] + df["Tarifa_Envio"])
     df["Lucro_Real"] = df["Lucro_Bruto"] - (df["Custo_Embalagem"] + df["Custo_Fiscal"])
@@ -155,7 +154,7 @@ if uploaded_file:
             custo_df.rename(columns={"CUSTO": "Custo_Produto"}, inplace=True)
             df = df.merge(custo_df[["SKU", "Custo_Produto"]], on="SKU", how="left")
 
-            # custo total baseado em unidades vendidas
+            # Corrige: custo multiplicado pelas unidades vendidas
             df["Custo_Produto_Total"] = df["Custo_Produto"].fillna(0) * df[coluna_unidades]
 
             df["Lucro_Liquido"] = df["Lucro_Real"] - df["Custo_Produto_Total"]
