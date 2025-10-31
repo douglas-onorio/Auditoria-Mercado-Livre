@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import plotly.express as px
 from datetime import datetime
 from io import BytesIO
 import re
@@ -17,16 +18,18 @@ st.sidebar.markdown(
     f"""
 💡 **Lógica da análise de margem:**
 
-A diferença é calculada por:
-
 > **Diferença (%) = (1 - (Valor Recebido ÷ Valor da Venda)) × 100**
 
-➡️ Vendas com diferença **acima de {margem_limite}%** serão sinalizadas como **anormais**.
+Vendas com diferença **acima de {margem_limite}%** são classificadas como **anormais**.
 """
 )
 
-# === UPLOAD ===
+# === UPLOAD PRINCIPAL ===
 uploaded_file = st.file_uploader("Envie o arquivo Excel de vendas (.xlsx)", type=["xlsx"])
+
+# === UPLOAD FUTURO DE CUSTOS ===
+st.sidebar.markdown("📦 **Integração futura de custo interno**")
+uploaded_custo = st.sidebar.file_uploader("Planilha de custos (opcional)", type=["xlsx"])
 
 if uploaded_file:
     df = pd.read_excel(uploaded_file, sheet_name="Vendas BR", header=5)
@@ -102,9 +105,33 @@ if uploaded_file:
     if pd.notna(data_min) and pd.notna(data_max):
         periodo_texto = f"{data_min.strftime('%d-%m-%Y')}_a_{data_max.strftime('%d-%m-%Y')}"
         st.info(f"📅 **Dados da planilha:** {data_min.strftime('%d/%m/%Y')} até {data_max.strftime('%d/%m/%Y')}")
+
+        # === DISCLAIMER ABAIXO DO PERÍODO ===
+        st.markdown(
+            """
+            ---
+            ⚖️ **Critérios e metodologia dos cálculos**
+            
+            Todos os valores apresentados são baseados nos dados reais fornecidos pelo Mercado Livre:
+            
+            - **Tarifa de venda e impostos (BRL)** → custo fixo + comissão do tipo de anúncio  
+              ▫️ *Anúncio Clássico:* 12% de comissão  
+              ▫️ *Anúncio Premium:* 17% de comissão  
+            - **Tarifas de envio (BRL)** → parte do frete paga pelo vendedor conforme peso e faixa de preço  
+            - **Cálculos adicionais aplicados:**  
+              ▫️ Custo de embalagem fixo → configurável pelo usuário  
+              ▫️ Custo fiscal (%) → aplicado sobre o valor de venda  
+            - **Lucro Real = Valor da venda − Tarifas ML − Custo de embalagem − Custo fiscal**
+            
+            🔹 *Etapas futuras:* será possível anexar uma planilha com o **custo real do produto** (SKU, PRODUTO, CUSTO, OBSERVAÇÕES),  
+            para calcular automaticamente o **Lucro Líquido** e a **Margem Final** de cada item.
+            ---
+            """
+        )
+
     df["Data"] = df["Data"].dt.strftime("%d/%m/%Y %H:%M")
 
-    # === CÁLCULOS DE AUDITORIA ===
+    # === CÁLCULOS ===
     df["Verificacao_Cancelamento"] = (
         df["Valor_Venda"] - (df["Tarifa_Venda"] + df["Tarifa_Envio"] + df["Cancelamentos"])
     ).round(2)
@@ -121,12 +148,25 @@ if uploaded_file:
 
     df["Status"] = df.apply(classificar, axis=1)
 
-    # === CÁLCULO FINANCEIRO REAL ===
+    # === CÁLCULO FINANCEIRO ===
     df["Custo_Embalagem"] = custo_embalagem
     df["Custo_Fiscal"] = (df["Valor_Venda"] * (custo_fiscal / 100)).round(2)
     df["Lucro_Bruto"] = (df["Valor_Venda"] - (df["Tarifa_Venda"] + df["Tarifa_Envio"])).round(2)
     df["Lucro_Real"] = (df["Lucro_Bruto"] - (df["Custo_Embalagem"] + df["Custo_Fiscal"])).round(2)
     df["Margem_Liquida_%"] = ((df["Lucro_Real"] / df["Valor_Venda"]) * 100).round(2)
+
+    # === FUTURA INTEGRAÇÃO DE CUSTO INTERNO ===
+    if uploaded_custo:
+        try:
+            custo_df = pd.read_excel(uploaded_custo)
+            custo_df.columns = custo_df.columns.str.strip()
+            custo_df["SKU"] = custo_df["SKU"].astype(str).str.strip()
+            custo_df.rename(columns={"CUSTO": "Custo_Produto"}, inplace=True)
+            df = df.merge(custo_df[["SKU", "Custo_Produto"]], on="SKU", how="left")
+            df["Lucro_Liquido"] = (df["Lucro_Real"] - df["Custo_Produto"].fillna(0)).round(2)
+            df["Margem_Final_%"] = ((df["Lucro_Liquido"] / df["Valor_Venda"]) * 100).round(2)
+        except Exception as e:
+            st.error(f"Erro ao processar planilha de custos: {e}")
 
     # === RESUMO ===
     total_vendas = len(df)
@@ -144,29 +184,18 @@ if uploaded_file:
     col4.metric("Lucro Total (R$)", f"{lucro_total:,.2f}")
     col5.metric("Margem Média (%)", f"{margem_media:.2f}%")
 
+    # === GRÁFICOS ===
     st.markdown("---")
-    st.subheader("📋 Itens Avaliados")
-    st.dataframe(df, use_container_width=True)
+    st.subheader("📊 Análise Gráfica de Lucro e Margem")
 
-    df_alerta = df[df["Status"] == "⚠️ Acima da Margem"]
-    if not df_alerta.empty:
-        produto_critico = (
-            df_alerta.groupby(["SKU", "Anuncio", "Produto"])
-            .size()
-            .reset_index(name="Ocorrências")
-            .sort_values("Ocorrências", ascending=False)
-            .head(1)
-        )
-        sku_produto = produto_critico.iloc[0]["SKU"]
-        anuncio_id = produto_critico.iloc[0]["Anuncio"]
-        nome_produto = produto_critico.iloc[0]["Produto"]
-        ocorrencias = produto_critico.iloc[0]["Ocorrências"]
-        st.warning(
-            f"🚨 Produto com mais vendas fora da margem: **{nome_produto}** "
-            f"(SKU: {sku_produto} | Anúncio: {anuncio_id} | {ocorrencias} ocorrências)"
-        )
-    else:
-        st.success("✅ Nenhum produto com vendas fora da margem no período.")
+    top_lucro = df.groupby("Produto", as_index=False)["Lucro_Real"].sum().sort_values(by="Lucro_Real", ascending=False).head(10)
+    top_margem = df.groupby("Produto", as_index=False)["Margem_Liquida_%"].mean().sort_values(by="Margem_Liquida_%").head(10)
+
+    fig1 = px.bar(top_lucro, x="Lucro_Real", y="Produto", orientation="h", title="💰 Top 10 Produtos por Lucro Real (R$)")
+    fig2 = px.bar(top_margem, x="Margem_Liquida_%", y="Produto", orientation="h", title="📉 Top 10 Menores Margens (%)")
+
+    st.plotly_chart(fig1, use_container_width=True)
+    st.plotly_chart(fig2, use_container_width=True)
 
     # === EXPORTAÇÃO XLSX ===
     output = BytesIO()
