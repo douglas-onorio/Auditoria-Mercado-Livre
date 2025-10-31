@@ -105,10 +105,8 @@ if uploaded_file:
     # Renomeia apenas o que consta no mapeamento
     df.rename(columns={c: col_map[c] for c in col_map if c in df.columns}, inplace=True)
 
-                   # === AJUSTE DE PACOTES AGRUPADOS (Redistribuição de taxas) ===
+                       # === AJUSTE DE PACOTES AGRUPADOS (Redistribuição de taxas sem excluir o cabeçalho) ===
     import re
-
-    linhas_para_excluir = []
 
     for i, row in df.iterrows():
         estado = str(row.get("Estado", ""))
@@ -117,34 +115,31 @@ if uploaded_file:
             continue
 
         qtd = int(match.group(1))
-
-        # Linhas seguintes correspondentes ao pacote
         subset = df.iloc[i + 1 : i + 1 + qtd].copy()
         if subset.empty:
             continue
 
-        # Captura valores totais da linha do pacote (usando os nomes já renomeados)
+        # Valores totais da linha do pacote
         total_venda = float(row.get("Valor_Venda", 0) or 0)
         total_envio = float(row.get("Receita por envio (BRL)", 0) or 0)
         total_tarifa = float(row.get("Tarifa_Venda", 0) or 0)
         total_acrescimo = float(row.get("Receita por acréscimo no preço (pago pelo comprador)", 0) or 0)
 
-        # Agora soma os valores do subset com base na nova coluna "Valor_Venda"
+        # Somatório parcial dos produtos
         soma_vendas = subset["Valor_Venda"].sum() or 1
 
-        # Redistribui proporcionalmente
+        # Redistribuição proporcional
         for j in subset.index:
             proporcao = subset.loc[j, "Valor_Venda"] / soma_vendas
-            df.loc[j, "Tarifa_Venda"] = total_tarifa * proporcao
-            df.loc[j, "Receita por envio (BRL)"] = total_envio * proporcao
-            df.loc[j, "Receita por acréscimo no preço (pago pelo comprador)"] = total_acrescimo * proporcao
+            df.loc[j, "Tarifa_Venda"] += total_tarifa * proporcao
+            df.loc[j, "Receita por envio (BRL)"] += total_envio * proporcao
+            df.loc[j, "Receita por acréscimo no preço (pago pelo comprador)"] += total_acrescimo * proporcao
 
-        linhas_para_excluir.append(i)
+        # Zera os valores no cabeçalho do pacote (para não duplicar somas)
+        df.loc[i, ["Valor_Venda", "Tarifa_Venda", "Receita por envio (BRL)"]] = 0
+        df.loc[i, "Estado"] = f"{estado} (processado)"
 
-    if linhas_para_excluir:
-        df = df.drop(index=linhas_para_excluir).reset_index(drop=True)
-        st.info(f"📦 Pacotes redistribuídos automaticamente ({len(linhas_para_excluir)} linhas agregadas removidas).")
-
+    st.info("📦 Redistribuição de pacotes concluída com preservação das linhas de cabeçalho.")
 
     # === COLUNA DE UNIDADES ===
     possiveis_colunas_unidades = ["Unidades", "Quantidade", "Qtde", "Qtd"]
