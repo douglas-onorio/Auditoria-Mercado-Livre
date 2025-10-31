@@ -10,6 +10,8 @@ st.title("📦 Auditoria Financeira Mercado Livre")
 # === CONFIGURAÇÃO ===
 st.sidebar.header("⚙️ Configurações")
 margem_limite = st.sidebar.number_input("Margem limite (%)", min_value=0, max_value=100, value=30, step=1)
+custo_embalagem = st.sidebar.number_input("Custo fixo de embalagem (R$)", min_value=0.0, value=3.0, step=0.5)
+custo_fiscal = st.sidebar.number_input("Custo fiscal (%)", min_value=0.0, value=10.0, step=0.5)
 
 st.sidebar.markdown(
     f"""
@@ -44,7 +46,7 @@ if uploaded_file:
         "SKU": "SKU",
         "# de anúncio": "Anuncio",
         "Título do anúncio": "Produto",
-        "Tipo de anúncio": "Tipo_Anuncio"  # nova coluna
+        "Tipo de anúncio": "Tipo_Anuncio"
     }
 
     df = df[[c for c in col_map.keys() if c in df.columns]].rename(columns=col_map)
@@ -61,7 +63,6 @@ if uploaded_file:
             return str(int(float(str(valor).replace(",", ".").strip())))
         except:
             return str(valor).strip()
-
     df["SKU"] = df["SKU"].apply(limpar_sku)
 
     # === TRATAR DATA EM PORTUGUÊS ===
@@ -103,7 +104,7 @@ if uploaded_file:
         st.info(f"📅 **Dados da planilha:** {data_min.strftime('%d/%m/%Y')} até {data_max.strftime('%d/%m/%Y')}")
     df["Data"] = df["Data"].dt.strftime("%d/%m/%Y %H:%M")
 
-    # === CÁLCULOS ===
+    # === CÁLCULOS DE AUDITORIA ===
     df["Verificacao_Cancelamento"] = (
         df["Valor_Venda"] - (df["Tarifa_Venda"] + df["Tarifa_Envio"] + df["Cancelamentos"])
     ).round(2)
@@ -120,28 +121,34 @@ if uploaded_file:
 
     df["Status"] = df.apply(classificar, axis=1)
 
-    # === AJUSTES ===
-    df["Venda"] = df["Venda"].apply(lambda x: str(int(float(x))) if pd.notnull(x) and str(x).replace('.', '').isdigit() else str(x))
+    # === CÁLCULO FINANCEIRO REAL ===
+    df["Custo_Embalagem"] = custo_embalagem
+    df["Custo_Fiscal"] = (df["Valor_Venda"] * (custo_fiscal / 100)).round(2)
+    df["Lucro_Bruto"] = (df["Valor_Venda"] - (df["Tarifa_Venda"] + df["Tarifa_Envio"])).round(2)
+    df["Lucro_Real"] = (df["Lucro_Bruto"] - (df["Custo_Embalagem"] + df["Custo_Fiscal"])).round(2)
+    df["Margem_Liquida_%"] = ((df["Lucro_Real"] / df["Valor_Venda"]) * 100).round(2)
 
     # === RESUMO ===
     total_vendas = len(df)
     fora_margem = (df["Status"] == "⚠️ Acima da Margem").sum()
     cancelamentos = (df["Status"] == "🟦 Cancelamento Correto").sum()
     media_dif = df.loc[df["Status"] == "✅ Normal", "%Diferença"].mean()
+    lucro_total = df["Lucro_Real"].sum()
+    receita_total = df["Valor_Venda"].sum()
+    margem_media = (lucro_total / receita_total * 100) if receita_total > 0 else 0
 
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns(5)
     col1.metric("Total de Vendas", total_vendas)
     col2.metric("Fora da Margem", fora_margem)
     col3.metric("Cancelamentos Corretos", cancelamentos)
-    col4.metric("Média Diferença (%)", f"{media_dif:.2f}%" if not pd.isna(media_dif) else "-")
+    col4.metric("Lucro Total (R$)", f"{lucro_total:,.2f}")
+    col5.metric("Margem Média (%)", f"{margem_media:.2f}%")
 
     st.markdown("---")
-
     st.subheader("📋 Itens Avaliados")
     st.dataframe(df, use_container_width=True)
 
     df_alerta = df[df["Status"] == "⚠️ Acima da Margem"]
-
     if not df_alerta.empty:
         produto_critico = (
             df_alerta.groupby(["SKU", "Anuncio", "Produto"])
@@ -161,7 +168,7 @@ if uploaded_file:
     else:
         st.success("✅ Nenhum produto com vendas fora da margem no período.")
 
-    # === EXPORTAÇÃO XLSX NA MEMÓRIA ===
+    # === EXPORTAÇÃO XLSX ===
     output = BytesIO()
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
         df.to_excel(writer, index=False, sheet_name="Auditoria", freeze_panes=(1, 0))
@@ -174,7 +181,6 @@ if uploaded_file:
             worksheet.set_column(i, i, max_len)
     output.seek(0)
 
-    # === BOTÃO DE DOWNLOAD COM PERÍODO ===
     nome_arquivo = f"Auditoria_ML_{periodo_texto or datetime.now().strftime('%d-%m-%Y_%H-%M-%S')}.xlsx"
     st.download_button(
         label="⬇️ Baixar Relatório XLSX",
