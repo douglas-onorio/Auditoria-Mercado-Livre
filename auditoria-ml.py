@@ -171,11 +171,11 @@ for j in subset.index:
 
     # --- Redistribuição dos valores financeiros do pacote ---
     proporcao = preco_unit / soma_precos
-    df.loc[j, "Valor_Venda"] = total_venda * proporcao
-    df.loc[j, "Valor_Recebido"] = total_recebido * proporcao
-    df.loc[j, "Tarifa_Venda"] = tarifa_individual
-    df.loc[j, "Tarifa_Envio"] = 0.0  # controlado separadamente
-    df.loc[j, "Receita por acréscimo no preço (pago pelo comprador)"] = total_acrescimo * proporcao
+        df.loc[j, "Valor_Venda"] = total_venda * proporcao
+        df.loc[j, "Valor_Recebido"] = total_recebido * proporcao
+        df.loc[j, "Tarifa_Venda"] = tarifa_individual
+        df.loc[j, "Tarifa_Envio"] = 0.0  # controlado separadamente
+        df.loc[j, "Receita por acréscimo no preço (pago pelo comprador)"] = total_acrescimo * proporcao
 
 
         # --- Marca o pacote como processado (mas mantém a linha) ---
