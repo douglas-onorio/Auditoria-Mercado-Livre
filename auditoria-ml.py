@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -28,6 +29,7 @@ uploaded_file = st.file_uploader("Envie o arquivo Excel de vendas (.xlsx)", type
 uploaded_custo = st.sidebar.file_uploader("📦 Planilha de custos (opcional)", type=["xlsx"])
 
 if uploaded_file:
+    # Leitura e limpeza das colunas
     df = pd.read_excel(uploaded_file, sheet_name="Vendas BR", header=5)
     df.columns = df.columns.str.strip().str.replace(r"\s+", " ", regex=True)
 
@@ -49,29 +51,27 @@ if uploaded_file:
     }
     df = df[[c for c in col_map.keys() if c in df.columns]].rename(columns=col_map)
 
-    # === COLUNA DE UNIDADES (CORRIGIDA) ===
-possiveis_colunas_unidades = ["Unidades", "Quantidade", "Qtde", "Qtd"]
-coluna_unidades = next((c for c in possiveis_colunas_unidades if c in df.columns), None)
+    # === COLUNA DE UNIDADES (ROBUSTA) ===
+    possiveis_colunas_unidades = ["Unidades", "Quantidade", "Qtde", "Qtd"]
+    coluna_unidades = next((c for c in possiveis_colunas_unidades if c in df.columns), None)
 
-if coluna_unidades:
-    # Remove espaços, quebras, traços e caracteres não numéricos
-    df[coluna_unidades] = (
-        df[coluna_unidades]
-        .astype(str)
-        .str.strip()
-        .replace({"": "1", "-": "1", "–": "1", "—": "1", "nan": "1"}, regex=True)
-        .str.extract(r"(\d+)", expand=False)  # pega apenas os dígitos
-        .fillna("1")
-        .astype(int)
-    )
-else:
-    df["Unidades"] = 1
-    coluna_unidades = "Unidades"
+    if coluna_unidades:
+        df[coluna_unidades] = (
+            df[coluna_unidades]
+            .astype(str)
+            .str.strip()
+            .replace({"": "1", "-": "1", "–": "1", "—": "1", "nan": "1", "None": "1"}, regex=True)
+            .str.extract(r"(\d+)", expand=False)
+            .fillna("1")
+            .astype(int)
+        )
+    else:
+        df["Unidades"] = 1
+        coluna_unidades = "Unidades"
 
-st.caption(f"🧩 Coluna de unidades detectada e normalizada: {coluna_unidades}")
+    st.caption(f"🧩 Coluna de unidades detectada e normalizada: {coluna_unidades}")
 
-
-    # === CONVERSÕES ===
+    # === CONVERSÕES NUMÉRICAS ===
     for c in ["Valor_Venda", "Valor_Recebido", "Tarifa_Venda", "Tarifa_Envio", "Cancelamentos", "Preco_Unitario"]:
         df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0).abs()
 
@@ -121,22 +121,6 @@ st.caption(f"🧩 Coluna de unidades detectada e normalizada: {coluna_unidades}"
     if pd.notna(data_min) and pd.notna(data_max):
         periodo_texto = f"{data_min.strftime('%d-%m-%Y')}_a_{data_max.strftime('%d-%m-%Y')}"
         st.info(f"📅 **Dados da planilha:** {data_min.strftime('%d/%m/%Y')} até {data_max.strftime('%d/%m/%Y')}")
-        st.markdown(
-            f"""
-            <div style='font-size:13px; color:gray;'>
-            ⚖️ <b>Critérios e metodologia dos cálculos</b><br><br>
-            Todos os valores apresentados são baseados nos dados reais do Mercado Livre.<br>
-            • <b>Tarifa de venda e impostos (BRL):</b> inclui o custo fixo e a comissão do tipo de anúncio.<br>
-            • <b>Tarifas de envio (BRL):</b> representam o frete pago pelo vendedor.<br>
-            • <b>Custos adicionais:</b> embalagem fixa e custo fiscal (% configurável).<br>
-            • <b>Lucro Real = Valor da venda − Tarifas ML − Custo de embalagem − Custo fiscal.</b><br><br>
-            🔹 Agora os cálculos consideram a <b>quantidade total de unidades vendidas</b> por pedido,
-            garantindo que margens e lucros reflitam corretamente o volume real.<br>
-            O custo de embalagem permanece fixo por venda, independente da quantidade.<br>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
     df["Data"] = df["Data"].dt.strftime("%d/%m/%Y %H:%M")
 
     # === AUDITORIA ===
@@ -150,8 +134,8 @@ st.caption(f"🧩 Coluna de unidades detectada e normalizada: {coluna_unidades}"
         else "✅ Normal", axis=1
     )
 
-    # === FINANCEIRO (ATUALIZADO COM UNIDADES) ===
-    df["Custo_Embalagem"] = custo_embalagem  # fixo
+    # === FINANCEIRO (CONSIDERANDO UNIDADES) ===
+    df["Custo_Embalagem"] = custo_embalagem
     df["Custo_Fiscal"] = (df["Valor_Venda"] * (custo_fiscal / 100)).round(2)
     df["Lucro_Bruto"] = df["Valor_Venda"] - (df["Tarifa_Venda"] + df["Tarifa_Envio"])
     df["Lucro_Real"] = df["Lucro_Bruto"] - (df["Custo_Embalagem"] + df["Custo_Fiscal"])
@@ -166,10 +150,7 @@ st.caption(f"🧩 Coluna de unidades detectada e normalizada: {coluna_unidades}"
             custo_df["SKU"] = custo_df["SKU"].astype(str).str.strip()
             custo_df.rename(columns={"CUSTO": "Custo_Produto"}, inplace=True)
             df = df.merge(custo_df[["SKU", "Custo_Produto"]], on="SKU", how="left")
-
-            # Corrige: custo multiplicado pelas unidades vendidas
             df["Custo_Produto_Total"] = df["Custo_Produto"].fillna(0) * df[coluna_unidades]
-
             df["Lucro_Liquido"] = df["Lucro_Real"] - df["Custo_Produto_Total"]
             df["Margem_Final_%"] = ((df["Lucro_Liquido"] / df["Valor_Venda"]) * 100).round(2)
             df["Markup_%"] = ((df["Lucro_Liquido"] / df["Custo_Produto_Total"]) * 100).round(2)
@@ -224,14 +205,6 @@ st.caption(f"🧩 Coluna de unidades detectada e normalizada: {coluna_unidades}"
             f"(SKU: {sku_critico} | Anúncio: {anuncio_critico} | {ocorrencias} ocorrências)"
         )
 
-        exemplo = df_alerta[df_alerta["SKU"] == sku_critico].head(1)
-        if not exemplo.empty:
-            st.markdown("**🧾 Exemplo de venda afetada:**")
-            st.write(exemplo[[
-                "Venda", "Data", "Valor_Venda", "Valor_Recebido", "Tarifa_Venda",
-                "Tarifa_Envio", "Lucro_Real", "%Diferença"
-            ]])
-
         vendas_afetadas = df_alerta[df_alerta["SKU"] == sku_critico]
         st.markdown("**📄 Todas as vendas afetadas por esse produto:**")
         st.dataframe(vendas_afetadas, use_container_width=True)
@@ -253,38 +226,6 @@ st.caption(f"🧩 Coluna de unidades detectada e normalizada: {coluna_unidades}"
     st.markdown("---")
     st.subheader("📋 Itens Avaliados")
     st.dataframe(df, use_container_width=True)
-
-    # === CONSULTA DE SKU UNITÁRIO ===
-    st.markdown("---")
-    st.subheader("🔎 Conferência Manual de SKU")
-    sku_detalhe = st.text_input("Digite o SKU para detalhar o cálculo:")
-    if sku_detalhe:
-        filtro = df[df["SKU"].astype(str) == sku_detalhe.strip()]
-        if filtro.empty:
-            st.warning("Nenhum registro encontrado para este SKU.")
-        else:
-            st.write(filtro[[
-                "Produto", "Valor_Venda", "Tarifa_Venda", "Tarifa_Envio",
-                "Custo_Embalagem", "Custo_Fiscal",
-                "Lucro_Bruto", "Lucro_Real",
-                "Custo_Produto" if "Custo_Produto" in filtro.columns else None,
-                "Lucro_Liquido" if "Lucro_Liquido" in filtro.columns else None,
-                "Margem_Final_%" if "Margem_Final_%" in filtro.columns else "Margem_Liquida_%"
-            ]].dropna(axis=1, how="all"))
-
-    # === RESUMO POR TIPO DE ANÚNCIO ===
-    st.markdown("---")
-    st.subheader("📦 Resumo Financeiro por Tipo de Anúncio")
-    resumo = df_validas.groupby("Tipo_Anuncio").agg(
-        Vendas=("Venda", "count"),
-        Receita_Total=("Valor_Venda", "sum"),
-        Lucro_Total=("Lucro_Liquido" if custo_carregado else "Lucro_Real", "sum"),
-        Margem_Média=("Margem_Final_%" if custo_carregado else "Margem_Liquida_%", "mean"),
-    ).reset_index()
-    resumo["Receita_Total"] = resumo["Receita_Total"].round(2)
-    resumo["Lucro_Total"] = resumo["Lucro_Total"].round(2)
-    resumo["Margem_Média"] = resumo["Margem_Média"].round(2)
-    st.dataframe(resumo, use_container_width=True)
 
     # === EXPORTAÇÃO COMPLETA ===
     output = BytesIO()
