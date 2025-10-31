@@ -108,10 +108,11 @@ if uploaded_file:
             # Renomeia apenas o que consta no mapeamento
     df.rename(columns={c: col_map[c] for c in col_map if c in df.columns}, inplace=True)
 
-        # === AJUSTE DE PACOTES AGRUPADOS (recalcula filhos com base no preço unitário) ===
+            # === AJUSTE DE PACOTES AGRUPADOS (recalcula filhos com base no preço unitário e tipo de anúncio) ===
     import re
 
     def calcular_custo_fixo(preco_unit):
+        """Custo fixo do ML conforme faixa de preço"""
         if preco_unit < 12.5:
             return preco_unit * 0.5
         elif preco_unit < 30:
@@ -121,9 +122,10 @@ if uploaded_file:
         elif preco_unit < 79:
             return 6.75
         else:
-            return 0.0  # acima de 79 entra regra de frete grátis
+            return 0.0  # Acima de 79 entra regra de frete grátis
 
     def calcular_percentual(tipo_anuncio):
+        """Percentual de tarifa por tipo de anúncio"""
         tipo = str(tipo_anuncio).strip().lower()
         if "premium" in tipo:
             return 0.17
@@ -146,98 +148,49 @@ if uploaded_file:
         total_recebido = float(row.get("Valor_Recebido", 0) or 0)
         total_tarifa = float(row.get("Tarifa_Venda", 0) or 0)
 
-        # --- Preço unitário dos filhos ---
-        col_preco_unitario = "Preco_Unitario" if "Preco_Unitario" in subset.columns else "Preço unitário de venda do anúncio (BRL)"
-        subset["Preco_Unitario_Item"] = pd.to_numeric(subset[col_preco_unitario], errors="coerce").fillna(0)
+        # --- Identifica preços unitários dos itens ---
+        col_preco_unitario = (
+            "Preco_Unitario" if "Preco_Unitario" in subset.columns
+            else "Preço unitário de venda do anúncio (BRL)"
+        )
+        subset["Preco_Unitario_Item"] = pd.to_numeric(
+            subset[col_preco_unitario], errors="coerce"
+        ).fillna(0)
+
         soma_precos = subset["Preco_Unitario_Item"].sum() or qtd
 
-        # --- Redistribui valores e tarifas para cada filho ---
-        total_tarifas_calculadas = 0
+        total_tarifas_calc = 0
         total_recebido_calc = 0
 
         for j in subset.index:
             preco_unit = float(subset.loc[j, "Preco_Unitario_Item"] or 0)
             tipo_anuncio = subset.loc[j, "Tipo_Anuncio"]
 
+            # --- Cálculo da tarifa ---
             perc = calcular_percentual(tipo_anuncio)
             custo_fixo = calcular_custo_fixo(preco_unit)
             tarifa_individual = round(preco_unit * perc + custo_fixo, 2)
 
+            # --- Distribuição proporcional do recebido ---
             proporcao = preco_unit / soma_precos
             valor_recebido_item = round(total_recebido * proporcao, 2)
 
-            # --- Atualiza valores reais dos filhos ---
+            # --- Atualiza os filhos ---
             df.loc[j, "Valor_Venda"] = preco_unit
-            df.loc[j, "Tarifa_Venda"] = tarifa_individual
             df.loc[j, "Valor_Recebido"] = valor_recebido_item
+            df.loc[j, "Tarifa_Venda"] = tarifa_individual
             df.loc[j, "Tarifa_Envio"] = 0.0
 
-            total_tarifas_calculadas += tarifa_individual
+            total_tarifas_calc += tarifa_individual
             total_recebido_calc += valor_recebido_item
 
-        # --- Marca o pacote como processado e mantém os valores originais nele ---
+        # --- Atualiza a linha do pacote como processado ---
         df.loc[i, "Estado"] = f"{estado} (processado)"
-        df.loc[i, "Valor_Venda"] = total_venda
-        df.loc[i, "Valor_Recebido"] = total_recebido
-        df.loc[i, "Tarifa_Venda"] = round(total_tarifas_calculadas, 2)
+        df.loc[i, "Tarifa_Venda"] = round(total_tarifas_calc, 2)
         df.loc[i, "Tarifa_Envio"] = 0.0
 
-                # --- Redistribuição por item com base no tipo de anúncio e preço unitário ---
+    st.info("📦 Pacotes redistribuídos com base no preço unitário e tipo de anúncio.")
 
-    def calcular_custo_fixo(preco_unit):
-        """Custo fixo ML conforme faixa de preço."""
-        if preco_unit < 12.5:
-            return preco_unit * 0.5
-        elif preco_unit < 30:
-            return 6.25
-        elif preco_unit < 50:
-            return 6.50
-        elif preco_unit < 79:
-            return 6.75
-        else:
-            return 0.0  # acima de 79 entra na regra de frete grátis
-
-    def calcular_percentual(tipo_anuncio):
-        """Percentual de tarifa conforme tipo de anúncio."""
-        tipo = str(tipo_anuncio).strip().lower()
-        if "premium" in tipo:
-            return 0.17
-        else:
-            return 0.12  # Clássico por padrão
-
-    # --- Para cada item dentro do pacote ---
-    for j in subset.index:
-        preco_unit = float(subset.loc[j, "Preco_Unitario_Item"] or 0)
-        tipo_anuncio = subset.loc[j, "Tipo_Anuncio"]
-
-        # --- Calcula tarifa individual (custo fixo + % do tipo de anúncio) ---
-        perc = calcular_percentual(tipo_anuncio)
-        custo_fixo = calcular_custo_fixo(preco_unit)
-        tarifa_individual = round(preco_unit * perc + custo_fixo, 4)
-
-        # --- Atualiza valores nas linhas dos produtos ---
-        df.loc[j, "Valor_Venda"] = preco_unit
-        df.loc[j, "Tarifa_Venda"] = tarifa_individual
-
-        # --- Mantém proporcionalidade no restante ---
-        proporcao = preco_unit / soma_precos
-        df.loc[j, "Valor_Recebido"] = total_recebido * proporcao
-        df.loc[j, "Tarifa_Envio"] = 0.0
-        df.loc[j, "Receita por acréscimo no preço (pago pelo comprador)"] = total_acrescimo * proporcao
-
-    # --- Marca o pacote apenas como processado ---
-    df.loc[i, "Estado"] = f"{estado} (processado)"
-
-    # --- Marca o pacote como processado (fora do loop interno) ---
-    df.loc[i, "Estado"] = f"{estado} (processado)"
-    df.loc[i, ["Valor_Venda", "Valor_Recebido", "Tarifa_Venda", "Tarifa_Envio"]] = 0
-
-
-    # --- Marca o pacote como processado (mas mantém a linha) ---
-    df.loc[i, "Estado"] = f"{estado} (processado)"
-    df.loc[i, ["Valor_Venda", "Valor_Recebido", "Tarifa_Venda", "Tarifa_Envio"]] = 0
-
-    st.info("📦 Pacotes redistribuídos com base no preço unitário real dos produtos.")
                         
     # === COLUNA DE UNIDADES ===
     possiveis_colunas_unidades = ["Unidades", "Quantidade", "Qtde", "Qtd"]
