@@ -124,6 +124,44 @@ if uploaded_file:
 
     st.caption(f"🧩 Coluna de unidades detectada e normalizada: **{coluna_unidades}**")
 
+    # === AJUSTE DE PACOTES AGRUPADOS (Redistribuição de taxas) ===
+import re
+
+linhas_para_excluir = []
+
+for i, row in df.iterrows():
+    estado = str(row.get("Estado", ""))
+    match = re.search(r"Pacote de (\d+) produtos", estado, flags=re.IGNORECASE)
+    if match:
+        qtd = int(match.group(1))
+
+        # Valores totais da linha do pacote
+        total_receita_produtos = float(row.get("Receita por produtos (BRL)", 0) or 0)
+        total_receita_envio = float(row.get("Receita por envio (BRL)", 0) or 0)
+        total_tarifa_venda = float(row.get("Tarifa de venda e impostos (BRL)", 0) or 0)
+        total_acrescimo = float(row.get("Receita por acréscimo no preço (pago pelo comprador)", 0) or 0)
+
+        # Linhas seguintes (produtos do pacote)
+        subset = df.iloc[i+1:i+1+qtd]
+        soma_produtos = subset["Receita por produtos (BRL)"].sum() or 1
+
+        # Redistribui proporcionalmente as taxas
+        for j in subset.index:
+            proporcao = df.loc[j, "Receita por produtos (BRL)"] / soma_produtos
+
+            df.loc[j, "Tarifa de venda e impostos (BRL)"] = total_tarifa_venda * proporcao
+            df.loc[j, "Receita por envio (BRL)"] = total_receita_envio * proporcao
+            df.loc[j, "Receita por acréscimo no preço (pago pelo comprador)"] = total_acrescimo * proporcao
+
+        # Marca a linha do pacote para exclusão
+        linhas_para_excluir.append(i)
+
+# Remove as linhas de pacote (agregadoras)
+if linhas_para_excluir:
+    df = df.drop(index=linhas_para_excluir).reset_index(drop=True)
+    st.info(f"📦 Pacotes agrupados detectados e redistribuídos automaticamente ({len(linhas_para_excluir)} linhas de pacote removidas).")
+
+
     # === CONVERSÕES ===
     for c in ["Valor_Venda", "Valor_Recebido", "Tarifa_Venda", "Tarifa_Envio", "Cancelamentos", "Preco_Unitario"]:
         if c in df.columns:
