@@ -429,12 +429,20 @@ if uploaded_file:
     st.subheader("📊 Análise por Tipo de Anúncio (Clássico x Premium)")
 
     if "Tipo_Anuncio" in df.columns:
-        # Preenche valores nulos ou vazios antes de contar
-        df["Tipo_Anuncio"] = df["Tipo_Anuncio"].fillna("Agrupado (Pacotes)").replace("", "Agrupado (Pacotes)")
-        
-        tipo_counts = df["Tipo_Anuncio"].value_counts().reset_index()
-        tipo_counts.columns = ["Tipo de Anúncio", "Quantidade"]
-        tipo_counts["% Participação"] = (tipo_counts["Quantidade"] / tipo_counts["Quantidade"].sum() * 100).round(2)
+    # Corrige campos vazios e preenche pacotes
+    df["Tipo_Anuncio"] = (
+        df["Tipo_Anuncio"]
+        .astype(str)
+        .str.strip()
+        .replace(["nan", "None", ""], "Agrupado (Pacotes)")
+    )
+
+    tipo_counts = df["Tipo_Anuncio"].value_counts(dropna=False).reset_index()
+    tipo_counts.columns = ["Tipo de Anúncio", "Quantidade"]
+    tipo_counts["% Participação"] = (
+        tipo_counts["Quantidade"] / tipo_counts["Quantidade"].sum() * 100
+    ).round(2)
+
 
         col1, col2 = st.columns(2)
         col1.metric("Anúncios Clássicos", int(tipo_counts.loc[tipo_counts["Tipo de Anúncio"].str.contains("Clássico", case=False), "Quantidade"].sum()))
