@@ -7,7 +7,8 @@ import re
 import os
 from pathlib import Path
 
-os.makedirs("dados", exist_ok=True)
+if not os.path.isdir("dados"):
+    os.mkdir("dados")
 ARQUIVO_CUSTOS_SALVOS = Path("dados/custos_salvos.xlsx")
 
 st.set_page_config(page_title="📊 Auditoria de Vendas ML", layout="wide")
