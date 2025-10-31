@@ -108,8 +108,27 @@ if uploaded_file:
             # Renomeia apenas o que consta no mapeamento
     df.rename(columns={c: col_map[c] for c in col_map if c in df.columns}, inplace=True)
 
-    # === AJUSTE DE PACOTES AGRUPADOS (usando preço unitário real dos itens) ===
+        # === AJUSTE DE PACOTES AGRUPADOS (recalcula filhos com base no preço unitário) ===
     import re
+
+    def calcular_custo_fixo(preco_unit):
+        if preco_unit < 12.5:
+            return preco_unit * 0.5
+        elif preco_unit < 30:
+            return 6.25
+        elif preco_unit < 50:
+            return 6.50
+        elif preco_unit < 79:
+            return 6.75
+        else:
+            return 0.0  # acima de 79 entra regra de frete grátis
+
+    def calcular_percentual(tipo_anuncio):
+        tipo = str(tipo_anuncio).strip().lower()
+        if "premium" in tipo:
+            return 0.17
+        else:
+            return 0.12  # Clássico padrão
 
     for i, row in df.iterrows():
         estado = str(row.get("Estado", ""))
@@ -122,20 +141,46 @@ if uploaded_file:
         if subset.empty:
             continue
 
-        # --- Totais da linha do pacote ---
+        # --- Totais do pacote ---
         total_venda = float(row.get("Valor_Venda", 0) or 0)
         total_recebido = float(row.get("Valor_Recebido", 0) or 0)
-        total_envio = float(row.get("Receita por envio (BRL)", 0) or 0)
         total_tarifa = float(row.get("Tarifa_Venda", 0) or 0)
-        total_acrescimo = float(row.get("Receita por acréscimo no preço (pago pelo comprador)", 0) or 0)
 
-        # --- Preço unitário real de cada item ---
+        # --- Preço unitário dos filhos ---
         col_preco_unitario = "Preco_Unitario" if "Preco_Unitario" in subset.columns else "Preço unitário de venda do anúncio (BRL)"
-        subset["Preco_Unitario_Item"] = pd.to_numeric(
-            subset[col_preco_unitario], errors="coerce"
-        ).fillna(0)
-
+        subset["Preco_Unitario_Item"] = pd.to_numeric(subset[col_preco_unitario], errors="coerce").fillna(0)
         soma_precos = subset["Preco_Unitario_Item"].sum() or qtd
+
+        # --- Redistribui valores e tarifas para cada filho ---
+        total_tarifas_calculadas = 0
+        total_recebido_calc = 0
+
+        for j in subset.index:
+            preco_unit = float(subset.loc[j, "Preco_Unitario_Item"] or 0)
+            tipo_anuncio = subset.loc[j, "Tipo_Anuncio"]
+
+            perc = calcular_percentual(tipo_anuncio)
+            custo_fixo = calcular_custo_fixo(preco_unit)
+            tarifa_individual = round(preco_unit * perc + custo_fixo, 2)
+
+            proporcao = preco_unit / soma_precos
+            valor_recebido_item = round(total_recebido * proporcao, 2)
+
+            # --- Atualiza valores reais dos filhos ---
+            df.loc[j, "Valor_Venda"] = preco_unit
+            df.loc[j, "Tarifa_Venda"] = tarifa_individual
+            df.loc[j, "Valor_Recebido"] = valor_recebido_item
+            df.loc[j, "Tarifa_Envio"] = 0.0
+
+            total_tarifas_calculadas += tarifa_individual
+            total_recebido_calc += valor_recebido_item
+
+        # --- Marca o pacote como processado e mantém os valores originais nele ---
+        df.loc[i, "Estado"] = f"{estado} (processado)"
+        df.loc[i, "Valor_Venda"] = total_venda
+        df.loc[i, "Valor_Recebido"] = total_recebido
+        df.loc[i, "Tarifa_Venda"] = round(total_tarifas_calculadas, 2)
+        df.loc[i, "Tarifa_Envio"] = 0.0
 
                 # --- Redistribuição por item com base no tipo de anúncio e preço unitário ---
 
