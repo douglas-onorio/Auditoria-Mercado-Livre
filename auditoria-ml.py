@@ -215,8 +215,6 @@ if uploaded_file:
             if produto_concat:
                 df.loc[i, "Produto"] = produto_concat
 
-    st.write("✅ Pacotes atualizados com SKU e Produto combinados:", df[df["Estado"].str.contains("Pacote", case=False, na=False)][["Venda", "SKU", "Produto"]])
-
     st.info("📦 Pacotes redistribuídos com base no preço unitário e tipo de anúncio.")
 
                         
