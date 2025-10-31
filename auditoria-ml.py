@@ -105,54 +105,49 @@ if uploaded_file:
     # Renomeia apenas o que consta no mapeamento
     df.rename(columns={c: col_map[c] for c in col_map if c in df.columns}, inplace=True)
 
-        # === AJUSTE DE PACOTES AGRUPADOS (com detecção automática do preço unitário) ===
-    import re
+        # === AJUSTE DE PACOTES AGRUPADOS (usando preço unitário real dos itens) ===
+import re
 
-    possiveis_colunas_preco = [
-        "Preço unitário de venda do anúncio (BRL)",
-        "Preço unitário de venda do anúncio (R$)",
-        "Preço unitário de venda (BRL)",
-        "Preço unitário (BRL)",
-        "Preço unitário (R$)"
-    ]
-    coluna_preco = next((c for c in possiveis_colunas_preco if c in df.columns), None)
+for i, row in df.iterrows():
+    estado = str(row.get("Estado", ""))
+    match = re.search(r"Pacote de (\d+) produtos", estado, flags=re.IGNORECASE)
+    if not match:
+        continue
 
-    for i, row in df.iterrows():
-        estado = str(row.get("Estado", ""))
-        match = re.search(r"Pacote de (\d+) produtos", estado, flags=re.IGNORECASE)
-        if not match:
-            continue
+    qtd = int(match.group(1))
+    subset = df.iloc[i + 1 : i + 1 + qtd].copy()
+    if subset.empty:
+        continue
 
-        qtd = int(match.group(1))
-        subset = df.iloc[i + 1 : i + 1 + qtd].copy()
-        if subset.empty:
-            continue
+    # --- Totais da linha do pacote ---
+    total_venda = float(row.get("Valor_Venda", 0) or 0)
+    total_recebido = float(row.get("Valor_Recebido", 0) or 0)
+    total_envio = float(row.get("Receita por envio (BRL)", 0) or 0)
+    total_tarifa = float(row.get("Tarifa_Venda", 0) or 0)
+    total_acrescimo = float(row.get("Receita por acréscimo no preço (pago pelo comprador)", 0) or 0)
 
-        total_venda = float(row.get("Valor_Venda", 0) or 0)
-        total_recebido = float(row.get("Valor_Recebido", 0) or 0)
-        total_envio = float(row.get("Receita por envio (BRL)", 0) or 0)
-        total_tarifa = float(row.get("Tarifa_Venda", 0) or 0)
-        total_acrescimo = float(row.get("Receita por acréscimo no preço (pago pelo comprador)", 0) or 0)
+    # --- Preço unitário real de cada item ---
+    subset["Preco_Unitario_Item"] = pd.to_numeric(
+        subset["Preço unitário de venda do anúncio (BRL)"], errors="coerce"
+    ).fillna(0)
 
-        if coluna_preco:
-            subset["Preco_Unitario_Item"] = pd.to_numeric(subset[coluna_preco], errors="coerce").fillna(0)
-        else:
-            subset["Preco_Unitario_Item"] = 1
+    soma_precos = subset["Preco_Unitario_Item"].sum() or qtd
 
-        soma_preco = subset["Preco_Unitario_Item"].sum() or qtd
+    # --- Redistribui proporcionalmente ---
+    for j in subset.index:
+        proporcao = subset.loc[j, "Preco_Unitario_Item"] / soma_precos
+        df.loc[j, "Valor_Venda"] = total_venda * proporcao
+        df.loc[j, "Valor_Recebido"] = total_recebido * proporcao
+        df.loc[j, "Tarifa_Venda"] = total_tarifa * proporcao
+        df.loc[j, "Tarifa_Envio"] = total_envio * proporcao
+        df.loc[j, "Receita por acréscimo no preço (pago pelo comprador)"] = total_acrescimo * proporcao
 
-        for j in subset.index:
-            prop = subset.loc[j, "Preco_Unitario_Item"] / soma_preco
-            df.loc[j, "Valor_Venda"] = total_venda * prop
-            df.loc[j, "Valor_Recebido"] = total_recebido * prop
-            df.loc[j, "Tarifa_Venda"] = total_tarifa * prop
-            df.loc[j, "Tarifa_Envio"] = total_envio * prop
-            df.loc[j, "Receita por acréscimo no preço (pago pelo comprador)"] = total_acrescimo * prop
+    # --- Marca o pacote como processado (mas mantém a linha) ---
+    df.loc[i, "Estado"] = f"{estado} (processado)"
+    df.loc[i, ["Valor_Venda", "Valor_Recebido", "Tarifa_Venda", "Tarifa_Envio"]] = 0
 
-        df.loc[i, ["Valor_Venda", "Valor_Recebido", "Tarifa_Venda", "Tarifa_Envio"]] = 0
-        df.loc[i, "Estado"] = f"{estado} (processado)"
+st.info("📦 Pacotes redistribuídos com base no preço unitário real dos produtos.")
 
-    st.info("📦 Pacotes redistribuídos com base no preço unitário real dos produtos.")
                            
 
     # === COLUNA DE UNIDADES ===
