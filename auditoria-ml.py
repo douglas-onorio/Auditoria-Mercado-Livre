@@ -424,29 +424,44 @@ if uploaded_file:
     col5.metric("Margem Média (%)", f"{margem_media:.2f}%")
     col6.metric("🔻 Prejuízo Total (R$)", f"{prejuizo_total:,.2f}")
 
-        # === ANÁLISE DE TIPOS DE ANÚNCIO ===
+            # === ANÁLISE DE TIPOS DE ANÚNCIO ===
     st.markdown("---")
     st.subheader("📊 Análise por Tipo de Anúncio (Clássico x Premium)")
 
     if "Tipo_Anuncio" in df.columns:
-    # Corrige campos vazios e preenche pacotes
-    df["Tipo_Anuncio"] = (
-        df["Tipo_Anuncio"]
-        .astype(str)
-        .str.strip()
-        .replace(["nan", "None", ""], "Agrupado (Pacotes)")
-    )
+        # Corrige campos vazios e preenche pacotes
+        df["Tipo_Anuncio"] = (
+            df["Tipo_Anuncio"]
+            .astype(str)
+            .str.strip()
+            .replace(["nan", "None", ""], "Agrupado (Pacotes)")
+        )
 
-    tipo_counts = df["Tipo_Anuncio"].value_counts(dropna=False).reset_index()
-    tipo_counts.columns = ["Tipo de Anúncio", "Quantidade"]
-    tipo_counts["% Participação"] = (
-        tipo_counts["Quantidade"] / tipo_counts["Quantidade"].sum() * 100
-    ).round(2)
-
+        tipo_counts = df["Tipo_Anuncio"].value_counts(dropna=False).reset_index()
+        tipo_counts.columns = ["Tipo de Anúncio", "Quantidade"]
+        tipo_counts["% Participação"] = (
+            tipo_counts["Quantidade"] / tipo_counts["Quantidade"].sum() * 100
+        ).round(2)
 
         col1, col2 = st.columns(2)
-        col1.metric("Anúncios Clássicos", int(tipo_counts.loc[tipo_counts["Tipo de Anúncio"].str.contains("Clássico", case=False), "Quantidade"].sum()))
-        col2.metric("Anúncios Premium", int(tipo_counts.loc[tipo_counts["Tipo de Anúncio"].str.contains("Premium", case=False), "Quantidade"].sum()))
+        col1.metric(
+            "Anúncios Clássicos",
+            int(
+                tipo_counts.loc[
+                    tipo_counts["Tipo de Anúncio"].str.contains("Clássico", case=False),
+                    "Quantidade"
+                ].sum()
+            ),
+        )
+        col2.metric(
+            "Anúncios Premium",
+            int(
+                tipo_counts.loc[
+                    tipo_counts["Tipo de Anúncio"].str.contains("Premium", case=False),
+                    "Quantidade"
+                ].sum()
+            ),
+        )
 
         st.dataframe(tipo_counts, use_container_width=True)
 
@@ -463,6 +478,7 @@ if uploaded_file:
         )
     else:
         st.warning("⚠️ Nenhuma coluna de tipo de anúncio encontrada no arquivo enviado.")
+
 
 
     # === ALERTA DE PRODUTO ===
