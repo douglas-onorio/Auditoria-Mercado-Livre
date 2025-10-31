@@ -105,7 +105,7 @@ if uploaded_file:
     # Renomeia apenas o que consta no mapeamento
     df.rename(columns={c: col_map[c] for c in col_map if c in df.columns}, inplace=True)
 
-        # === AJUSTE DE PACOTES AGRUPADOS (Redistribuição de taxas) ===
+           # === AJUSTE DE PACOTES AGRUPADOS (Redistribuição de taxas) ===
     import re
 
     linhas_para_excluir = []
@@ -117,29 +117,29 @@ if uploaded_file:
             qtd = int(match.group(1))
 
             # Garante que a coluna existe
-            if "Receita por produtos (BRL)" not in df.columns:
-                st.warning("⚠️ Coluna 'Receita por produtos (BRL)' não encontrada, ajuste ignorado.")
+            if "Valor_Venda" not in df.columns:
+                st.warning("⚠️ Coluna 'Valor_Venda' não encontrada, ajuste ignorado.")
                 break
 
             # Valores totais da linha do pacote
-            total_receita_produtos = float(row.get("Receita por produtos (BRL)", 0) or 0)
+            total_receita_produtos = float(row.get("Valor_Venda", 0) or 0)
             total_receita_envio = float(row.get("Receita por envio (BRL)", 0) or 0)
-            total_tarifa_venda = float(row.get("Tarifa de venda e impostos (BRL)", 0) or 0)
+            total_tarifa_venda = float(row.get("Tarifa_Venda", 0) or 0)
             total_acrescimo = float(row.get("Receita por acréscimo no preço (pago pelo comprador)", 0) or 0)
 
             # Linhas seguintes — verifica se o slice é válido
             subset = df.iloc[i + 1 : i + 1 + qtd].copy()
-            if subset.empty or "Receita por produtos (BRL)" not in subset.columns:
+            if subset.empty or "Valor_Venda" not in subset.columns:
                 continue
 
-            soma_produtos = subset["Receita por produtos (BRL)"].sum()
+            soma_produtos = subset["Valor_Venda"].sum()
             if soma_produtos == 0:
                 continue
 
             # Redistribui proporcionalmente
             for j in subset.index:
-                proporcao = df.loc[j, "Receita por produtos (BRL)"] / soma_produtos
-                df.loc[j, "Tarifa de venda e impostos (BRL)"] = total_tarifa_venda * proporcao
+                proporcao = df.loc[j, "Valor_Venda"] / soma_produtos
+                df.loc[j, "Tarifa_Venda"] = total_tarifa_venda * proporcao
                 df.loc[j, "Receita por envio (BRL)"] = total_receita_envio * proporcao
                 df.loc[j, "Receita por acréscimo no preço (pago pelo comprador)"] = total_acrescimo * proporcao
 
@@ -149,7 +149,6 @@ if uploaded_file:
     if linhas_para_excluir:
         df = df.drop(index=linhas_para_excluir).reset_index(drop=True)
         st.info(f"📦 Pacotes redistribuídos automaticamente ({len(linhas_para_excluir)} linhas agregadas removidas).")
-
 
     # === COLUNA DE UNIDADES ===
     possiveis_colunas_unidades = ["Unidades", "Quantidade", "Qtde", "Qtd"]
