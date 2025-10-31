@@ -560,17 +560,30 @@ if uploaded_file:
         height=450
     )
 
-    # === EXPORTAÇÃO FINAL ===
+        # === EXPORTAÇÃO FINAL (colunas principais apenas) ===
+    colunas_principais = [
+        "Venda", "Data", "Produto", "SKU", "Tipo_Anuncio",
+        "Unidades", "Valor_Venda", "Valor_Recebido",
+        "Tarifa_Venda", "Tarifa_Envio", "Cancelamentos",
+        "Lucro_Real", "Margem_Liquida_%", "Status"
+    ]
+
+    # Mantém apenas colunas que realmente existem
+    colunas_exportar = [c for c in colunas_principais if c in df.columns]
+    df_export = df[colunas_exportar].copy()
+
     output = BytesIO()
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-        df.to_excel(writer, index=False, sheet_name="Auditoria", freeze_panes=(1, 0))
+        df_export.to_excel(writer, index=False, sheet_name="Auditoria", freeze_panes=(1, 0))
     output.seek(0)
+
     st.download_button(
         label="⬇️ Baixar Relatório XLSX",
         data=output,
         file_name=f"Auditoria_ML_{datetime.now().strftime('%d-%m-%Y_%H-%M-%S')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
+
 
 else:
     st.info("Envie o arquivo Excel de vendas para iniciar a análise.")
