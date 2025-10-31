@@ -29,11 +29,11 @@ uploaded_file = st.file_uploader("Envie o arquivo Excel de vendas (.xlsx)", type
 uploaded_custo = st.sidebar.file_uploader("📦 Planilha de custos (opcional)", type=["xlsx"])
 
 if uploaded_file:
-    # Leitura e limpeza das colunas
+    # --- LEITURA COMPLETA ---
     df = pd.read_excel(uploaded_file, sheet_name="Vendas BR", header=5)
     df.columns = df.columns.str.strip().str.replace(r"\s+", " ", regex=True)
 
-    # --- MAPEAMENTO ---
+    # --- MAPEAMENTO PRINCIPAL ---
     col_map = {
         "N.º de venda": "Venda",
         "Data da venda": "Data",
@@ -49,18 +49,19 @@ if uploaded_file:
         "Título do anúncio": "Produto",
         "Tipo de anúncio": "Tipo_Anuncio"
     }
-    df = df[[c for c in col_map.keys() if c in df.columns]].rename(columns=col_map)
 
-    # === COLUNA DE UNIDADES (ROBUSTA) ===
+    # Renomeia apenas o que consta no mapeamento, preservando o resto (como "Unidades")
+    df.rename(columns={c: col_map[c] for c in col_map if c in df.columns}, inplace=True)
+
+    # === IDENTIFICA E NORMALIZA COLUNA DE UNIDADES ===
     possiveis_colunas_unidades = ["Unidades", "Quantidade", "Qtde", "Qtd"]
     coluna_unidades = next((c for c in possiveis_colunas_unidades if c in df.columns), None)
-
     if coluna_unidades:
         df[coluna_unidades] = (
             df[coluna_unidades]
             .astype(str)
             .str.strip()
-            .replace({"": "1", "-": "1", "–": "1", "—": "1", "nan": "1", "None": "1"}, regex=True)
+            .replace({"": "1", "-": "1", "–": "1", "—": "1", "nan": "1"}, regex=True)
             .str.extract(r"(\d+)", expand=False)
             .fillna("1")
             .astype(int)
@@ -69,11 +70,12 @@ if uploaded_file:
         df["Unidades"] = 1
         coluna_unidades = "Unidades"
 
-    st.caption(f"🧩 Coluna de unidades detectada e normalizada: {coluna_unidades}")
+    st.caption(f"🧩 Coluna de unidades detectada e normalizada: **{coluna_unidades}**")
 
-    # === CONVERSÕES NUMÉRICAS ===
+    # === CONVERSÕES ===
     for c in ["Valor_Venda", "Valor_Recebido", "Tarifa_Venda", "Tarifa_Envio", "Cancelamentos", "Preco_Unitario"]:
-        df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0).abs()
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0).abs()
 
     # === AJUSTE SKU ===
     def limpar_sku(valor):
@@ -83,7 +85,7 @@ if uploaded_file:
             return str(int(float(str(valor).replace(",", ".").strip())))
         except:
             return str(valor).strip()
-    df["SKU"] = df["SKU"].apply(limpar_sku)
+    df["SKU"] = df["SKU"].apply(limpar_sku) if "SKU" in df.columns else ""
 
     # === AJUSTE VENDA ===
     def formatar_venda(valor):
@@ -100,6 +102,7 @@ if uploaded_file:
         "maio": "05", "junho": "06", "julho": "07", "agosto": "08",
         "setembro": "09", "outubro": "10", "novembro": "11", "dezembro": "12"
     }
+
     def parse_data_portugues(texto):
         if not isinstance(texto, str) or not any(m in texto.lower() for m in meses_pt):
             return None
@@ -113,14 +116,28 @@ if uploaded_file:
             return datetime.strptime(f"{dia}/{mes}/{ano} {hora}", "%d/%m/%Y %H:%M")
         except Exception:
             return None
+
     df["Data"] = pd.to_datetime(df["Data"].apply(parse_data_portugues), errors="coerce")
 
     # === PERÍODO ===
     data_min, data_max = df["Data"].min(), df["Data"].max()
-    periodo_texto = ""
     if pd.notna(data_min) and pd.notna(data_max):
-        periodo_texto = f"{data_min.strftime('%d-%m-%Y')}_a_{data_max.strftime('%d-%m-%Y')}"
-        st.info(f"📅 **Dados da planilha:** {data_min.strftime('%d/%m/%Y')} até {data_max.strftime('%d/%m/%Y')}")
+        st.info(f"📅 **Período de vendas:** {data_min.strftime('%d/%m/%Y')} → {data_max.strftime('%d/%m/%Y')}")
+        st.markdown(
+            """
+            <div style='font-size:13px; color:gray;'>
+            ⚖️ <b>Critérios e metodologia:</b><br>
+            Este relatório calcula automaticamente as margens e o lucro com base em:<br>
+            • Tarifas e impostos retidos pelo ML.<br>
+            • Custos de envio.<br>
+            • Custo fixo de embalagem e custo fiscal configurável.<br>
+            • Quantidade total de unidades por venda.<br><br>
+            Lucro Real = Valor da venda − Tarifas − Frete − Embalagem − Custo fiscal.<br>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
     df["Data"] = df["Data"].dt.strftime("%d/%m/%Y %H:%M")
 
     # === AUDITORIA ===
@@ -134,7 +151,7 @@ if uploaded_file:
         else "✅ Normal", axis=1
     )
 
-    # === FINANCEIRO (CONSIDERANDO UNIDADES) ===
+    # === FINANCEIRO ===
     df["Custo_Embalagem"] = custo_embalagem
     df["Custo_Fiscal"] = (df["Valor_Venda"] * (custo_fiscal / 100)).round(2)
     df["Lucro_Bruto"] = df["Valor_Venda"] - (df["Tarifa_Venda"] + df["Tarifa_Envio"])
@@ -205,6 +222,14 @@ if uploaded_file:
             f"(SKU: {sku_critico} | Anúncio: {anuncio_critico} | {ocorrencias} ocorrências)"
         )
 
+        exemplo = df_alerta[df_alerta["SKU"] == sku_critico].head(1)
+        if not exemplo.empty:
+            st.markdown("**🧾 Exemplo de venda afetada:**")
+            st.write(exemplo[[
+                "Venda", "Data", "Valor_Venda", "Valor_Recebido", "Tarifa_Venda",
+                "Tarifa_Envio", "Lucro_Real", "%Diferença"
+            ]])
+
         vendas_afetadas = df_alerta[df_alerta["SKU"] == sku_critico]
         st.markdown("**📄 Todas as vendas afetadas por esse produto:**")
         st.dataframe(vendas_afetadas, use_container_width=True)
@@ -222,12 +247,22 @@ if uploaded_file:
     else:
         st.success("✅ Nenhum produto com vendas fora da margem no período.")
 
-    # === TABELAS ===
+    # === CONSULTA SKU ===
     st.markdown("---")
-    st.subheader("📋 Itens Avaliados")
-    st.dataframe(df, use_container_width=True)
+    st.subheader("🔎 Conferência Manual de SKU")
+    sku_detalhe = st.text_input("Digite o SKU para detalhar:")
+    if sku_detalhe:
+        filtro = df[df["SKU"].astype(str) == sku_detalhe.strip()]
+        if filtro.empty:
+            st.warning("Nenhum registro encontrado para este SKU.")
+        else:
+            st.write(filtro[[
+                "Produto", "Valor_Venda", "Tarifa_Venda", "Tarifa_Envio",
+                "Custo_Embalagem", "Custo_Fiscal", "Lucro_Bruto", "Lucro_Real",
+                "Unidades", "Margem_Liquida_%"
+            ]].dropna(axis=1, how="all"))
 
-    # === EXPORTAÇÃO COMPLETA ===
+    # === EXPORTAÇÃO FINAL ===
     output = BytesIO()
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
         df.to_excel(writer, index=False, sheet_name="Auditoria", freeze_panes=(1, 0))
@@ -235,7 +270,7 @@ if uploaded_file:
     st.download_button(
         label="⬇️ Baixar Relatório XLSX",
         data=output,
-        file_name=f"Auditoria_ML_{periodo_texto or datetime.now().strftime('%d-%m-%Y_%H-%M-%S')}.xlsx",
+        file_name=f"Auditoria_ML_{datetime.now().strftime('%d-%m-%Y_%H-%M-%S')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
