@@ -5,7 +5,10 @@ from datetime import datetime
 from io import BytesIO
 import re
 import os
+from pathlib import Path
+
 os.makedirs("dados", exist_ok=True)
+ARQUIVO_CUSTOS_SALVOS = Path("dados/custos_salvos.xlsx")
 
 st.set_page_config(page_title="📊 Auditoria de Vendas ML", layout="wide")
 st.title("📦 Auditoria Financeira Mercado Livre")
@@ -26,9 +29,37 @@ Vendas com diferença **acima de {margem_limite}%** são classificadas como **an
 """
 )
 
-# === UPLOAD ===
-uploaded_file = st.file_uploader("Envie o arquivo Excel de vendas (.xlsx)", type=["xlsx"])
+# === GESTÃO DE CUSTOS (NOVO BLOCO) ===
+def carregar_custos(uploaded_file=None):
+    """Lê custos de upload ou do arquivo salvo."""
+    if uploaded_file:
+        df_custos = pd.read_excel(uploaded_file)
+        df_custos.columns = df_custos.columns.str.strip()
+        df_custos.to_excel(ARQUIVO_CUSTOS_SALVOS, index=False)
+        st.success("📥 Nova planilha de custos salva automaticamente!")
+        return df_custos
+    elif ARQUIVO_CUSTOS_SALVOS.exists():
+        st.info("📂 Custos carregados automaticamente do arquivo salvo.")
+        return pd.read_excel(ARQUIVO_CUSTOS_SALVOS)
+    else:
+        st.warning("⚠️ Nenhum custo encontrado. Envie ou edite manualmente para criar um novo.")
+        return pd.DataFrame(columns=["SKU", "Produto", "Custo_Produto"])
+
+def salvar_custos(df):
+    df.to_excel(ARQUIVO_CUSTOS_SALVOS, index=False)
+    st.success("💾 Custos atualizados e salvos com sucesso!")
+
 uploaded_custo = st.sidebar.file_uploader("📦 Planilha de custos (opcional)", type=["xlsx"])
+custo_df = carregar_custos(uploaded_custo)
+
+st.markdown("---")
+st.subheader("✏️ Edição de Custos (Persistente)")
+custos_editados = st.data_editor(custo_df, num_rows="dynamic")
+if st.button("💾 Salvar custos atualizados"):
+    salvar_custos(custos_editados)
+
+# === UPLOAD DE VENDAS ===
+uploaded_file = st.file_uploader("Envie o arquivo Excel de vendas (.xlsx)", type=["xlsx"])
 
 if uploaded_file:
     # --- LEITURA COMPLETA ---
@@ -52,10 +83,10 @@ if uploaded_file:
         "Tipo de anúncio": "Tipo_Anuncio"
     }
 
-    # Renomeia apenas o que consta no mapeamento, preservando o resto (como "Unidades")
+    # Renomeia apenas o que consta no mapeamento
     df.rename(columns={c: col_map[c] for c in col_map if c in df.columns}, inplace=True)
 
-    # === IDENTIFICA E NORMALIZA COLUNA DE UNIDADES ===
+    # === COLUNA DE UNIDADES ===
     possiveis_colunas_unidades = ["Unidades", "Quantidade", "Qtde", "Qtd"]
     coluna_unidades = next((c for c in possiveis_colunas_unidades if c in df.columns), None)
     if coluna_unidades:
@@ -93,8 +124,7 @@ if uploaded_file:
     def formatar_venda(valor):
         if pd.isna(valor):
             return ""
-        valor_str = re.sub(r"[^\d]", "", str(valor))
-        return valor_str
+        return re.sub(r"[^\d]", "", str(valor))
     df["Venda"] = df["Venda"].apply(formatar_venda)
 
     # === DATA ===
@@ -162,12 +192,9 @@ if uploaded_file:
 
     # === PLANILHA DE CUSTOS ===
     custo_carregado = False
-    if uploaded_custo:
+    if not custo_df.empty:
         try:
-            custo_df = pd.read_excel(uploaded_custo)
-            custo_df.columns = custo_df.columns.str.strip()
             custo_df["SKU"] = custo_df["SKU"].astype(str).str.strip()
-            custo_df.rename(columns={"CUSTO": "Custo_Produto"}, inplace=True)
             df = df.merge(custo_df[["SKU", "Custo_Produto"]], on="SKU", how="left")
             df["Custo_Produto_Total"] = df["Custo_Produto"].fillna(0) * df[coluna_unidades]
             df["Lucro_Liquido"] = df["Lucro_Real"] - df["Custo_Produto_Total"]
@@ -175,9 +202,9 @@ if uploaded_file:
             df["Markup_%"] = ((df["Lucro_Liquido"] / df["Custo_Produto_Total"]) * 100).round(2)
             custo_carregado = True
         except Exception as e:
-            st.error(f"Erro ao processar planilha de custos: {e}")
+            st.error(f"Erro ao aplicar custos: {e}")
 
-    # === EXCLUI CANCELAMENTOS DO CÁLCULO ===
+# === EXCLUI CANCELAMENTOS DO CÁLCULO ===
     df_validas = df[df["Status"] != "🟦 Cancelamento Correto"]
 
     # === RESUMO ===
@@ -297,4 +324,5 @@ if uploaded_file:
 
 else:
     st.info("Envie o arquivo Excel de vendas para iniciar a análise.")
+
 
