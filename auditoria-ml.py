@@ -43,7 +43,8 @@ if uploaded_file:
         "Preço unitário de venda do anúncio (BRL)": "Preco_Unitario",
         "SKU": "SKU",
         "# de anúncio": "Anuncio",
-        "Título do anúncio": "Produto"
+        "Título do anúncio": "Produto",
+        "Tipo de anúncio": "Tipo_Anuncio"  # nova coluna
     }
 
     df = df[[c for c in col_map.keys() if c in df.columns]].rename(columns=col_map)
@@ -51,6 +52,17 @@ if uploaded_file:
     # === CONVERSÕES NUMÉRICAS ===
     for c in ["Valor_Venda", "Valor_Recebido", "Tarifa_Venda", "Tarifa_Envio", "Cancelamentos", "Preco_Unitario"]:
         df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0).abs()
+
+    # === AJUSTE DO SKU ===
+    def limpar_sku(valor):
+        if pd.isna(valor):
+            return ""
+        try:
+            return str(int(float(str(valor).replace(",", ".").strip())))
+        except:
+            return str(valor).strip()
+
+    df["SKU"] = df["SKU"].apply(limpar_sku)
 
     # === TRATAR DATA EM PORTUGUÊS ===
     df["Data"] = df["Data"].astype(str).str.strip()
@@ -85,7 +97,9 @@ if uploaded_file:
     # === PERÍODO AUTOMÁTICO ===
     data_min = df["Data"].min()
     data_max = df["Data"].max()
+    periodo_texto = ""
     if pd.notna(data_min) and pd.notna(data_max):
+        periodo_texto = f"{data_min.strftime('%d-%m-%Y')}_a_{data_max.strftime('%d-%m-%Y')}"
         st.info(f"📅 **Dados da planilha:** {data_min.strftime('%d/%m/%Y')} até {data_max.strftime('%d/%m/%Y')}")
     df["Data"] = df["Data"].dt.strftime("%d/%m/%Y %H:%M")
 
@@ -107,7 +121,7 @@ if uploaded_file:
     df["Status"] = df.apply(classificar, axis=1)
 
     # === AJUSTES ===
-    df["Venda"] = df["Venda"].apply(lambda x: str(int(x)) if pd.notnull(x) else "")
+    df["Venda"] = df["Venda"].apply(lambda x: str(int(float(x))) if pd.notnull(x) and str(x).replace('.', '').isdigit() else str(x))
 
     # === RESUMO ===
     total_vendas = len(df)
@@ -160,10 +174,12 @@ if uploaded_file:
             worksheet.set_column(i, i, max_len)
     output.seek(0)
 
+    # === BOTÃO DE DOWNLOAD COM PERÍODO ===
+    nome_arquivo = f"Auditoria_ML_{periodo_texto or datetime.now().strftime('%d-%m-%Y_%H-%M-%S')}.xlsx"
     st.download_button(
         label="⬇️ Baixar Relatório XLSX",
         data=output,
-        file_name=f"Auditoria_ML_{datetime.now().strftime('%d-%m-%Y_%H-%M-%S')}.xlsx",
+        file_name=nome_arquivo,
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
