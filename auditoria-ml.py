@@ -41,19 +41,36 @@ import gspread
 from google.oauth2.service_account import Credentials
 import os
 
-# === AUTENTICAÇÃO GOOGLE SHEETS ===
+st.subheader("💰 Custos de Produtos (Google Sheets)")
+
 SERVICE_FILE = ".streamlit/service_account.json"
 
-if not os.path.exists(SERVICE_FILE):
-    st.error("❌ Arquivo service_account.json não encontrado na pasta .streamlit/")
+if os.path.exists(SERVICE_FILE):
+    try:
+        scope = [
+            "https://spreadsheets.google.com/feeds",
+            "https://www.googleapis.com/auth/drive"
+        ]
+        creds = Credentials.from_service_account_file(SERVICE_FILE, scopes=scope)
+        client = gspread.authorize(creds)
+        st.success("📡 Conectado com sucesso ao Google Sheets!")
+    except Exception as e:
+        st.error(f"❌ Erro ao autenticar com Google Sheets: {e}")
+        client = None
 else:
-    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    creds = Credentials.from_service_account_file(SERVICE_FILE, scopes=scope)
-    client = gspread.authorize(creds)
+    st.error("❌ Arquivo service_account.json não encontrado na pasta .streamlit/")
+    client = None
+
+# --- Garante que 'client' exista ---
+if "client" not in locals() or client is None:
+    client = None
 
 SHEET_NAME = "CUSTOS_ML"  # nome da planilha criada no Google Sheets
 
 def carregar_custos_google():
+    if not client:
+        st.warning("⚠️ Google Sheets não autenticado.")
+        return pd.DataFrame(columns=["SKU", "Produto", "Custo_Produto"])
     try:
         sheet = client.open(SHEET_NAME).sheet1
         dados = sheet.get_all_records()
@@ -68,6 +85,9 @@ def carregar_custos_google():
         return pd.DataFrame(columns=["SKU", "Produto", "Custo_Produto"])
 
 def salvar_custos_google(df):
+    if not client:
+        st.warning("⚠️ Google Sheets não autenticado.")
+        return
     try:
         sheet = client.open(SHEET_NAME).sheet1
         sheet.clear()
