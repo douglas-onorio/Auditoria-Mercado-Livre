@@ -104,17 +104,21 @@ def carregar_custos_google():
             inplace=True
         )
 
-        # 🔢 Converte custo para número, limpando R$, vírgulas, espaços etc.
-        if "Custo_Produto" in df_custos.columns:
-            df_custos["Custo_Produto"] = (
-                df_custos["Custo_Produto"]
-                .astype(str)
-                .str.replace("R$", "", regex=False)
-                .str.replace(",", ".", regex=False)
-                .str.replace(" ", "", regex=False)
-                .replace("", "0")
-                .astype(float)
-            )
+        # 🔢 Converte custo para número, limpando R$, vírgulas, traços etc.
+if "Custo_Produto" in df_custos.columns:
+    df_custos["Custo_Produto"] = (
+        df_custos["Custo_Produto"]
+        .astype(str)
+        .str.replace("R$", "", regex=False)
+        .str.replace(",", ".", regex=False)
+        .str.replace("-", "0", regex=False)
+        .str.replace(" ", "", regex=False)
+        .replace("", "0")
+        .replace("nan", "0")
+        .replace("N/A", "0")
+        .astype(float)
+    )
+
 
         st.info("📡 Custos carregados diretamente do Google Sheets.")
         return df_custos
