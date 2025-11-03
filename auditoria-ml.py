@@ -78,19 +78,21 @@ if "client" not in locals() or client is None:
 SHEET_NAME = "CUSTOS_ML"  # nome da planilha no Google Sheets
 
 def carregar_custos_google():
-    """Lê custos diretamente do Google Sheets."""
+    """Lê custos diretamente do Google Sheets e corrige formato pt-BR."""
     if not client:
         st.warning("⚠️ Google Sheets não autenticado.")
         return pd.DataFrame(columns=["SKU", "Produto", "Custo_Produto"])
     try:
         sheet = client.open(SHEET_NAME).sheet1
-        dados = sheet.get_all_records()
-        if not dados:
+        dados = sheet.get_all_values()  # pega TUDO como texto (não tenta converter)
+        if not dados or len(dados) < 2:
             return pd.DataFrame(columns=["SKU", "Produto", "Custo_Produto"])
-        df_custos = pd.DataFrame(dados)
+
+        # Constrói DataFrame manualmente
+        df_custos = pd.DataFrame(dados[1:], columns=dados[0])
         df_custos.columns = df_custos.columns.str.strip()
 
-        # 🔧 Corrige nomes de colunas comuns
+        # 🔧 Normaliza nomes de colunas
         rename_map = {
             "sku": "SKU",
             "produto": "Produto",
@@ -103,25 +105,25 @@ def carregar_custos_google():
         }
         df_custos.rename(columns={c: rename_map.get(c.lower(), c) for c in df_custos.columns}, inplace=True)
 
-        # 🔢 Conversão robusta do campo de custo
+        # 🔢 Converte custos respeitando o formato BR
         if "Custo_Produto" in df_custos.columns:
-            def parse_valor(v):
-                v = str(v).strip().replace("R$", "").replace(" ", "")
-                if v in ["", "-", "nan", "N/A"]:
+            def corrigir_valor(v):
+                v = str(v).strip()
+                if v in ["", "-", "nan", "N/A", "None", "0"]:
                     return 0.0
-                v = v.replace(".", "").replace(",", ".")  # remove milhar, troca vírgula por ponto
+                # remove R$, pontos de milhar e troca vírgula por ponto
+                v = v.replace("R$", "").replace(".", "").replace(",", ".").replace(" ", "")
                 try:
                     val = float(v)
-                    # Se o número for pequeno (2.955) e tiver 3 casas decimais originais, corrige
-                    if val < 10:
-                        val *= 10
-                    if val < 1:
-                        val *= 100
+                    if val > 1000:  # casos absurdos (2956 → 29.56)
+                        val = val / 100
+                    elif val > 100:
+                        val = val / 10
                     return round(val, 2)
                 except:
                     return 0.0
 
-            df_custos["Custo_Produto"] = df_custos["Custo_Produto"].apply(parse_valor)
+            df_custos["Custo_Produto"] = df_custos["Custo_Produto"].apply(corrigir_valor)
 
         st.info("📡 Custos carregados diretamente do Google Sheets.")
         return df_custos
