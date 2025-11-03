@@ -40,32 +40,24 @@ Vendas com diferença **acima de {margem_limite}%** são classificadas como **an
 import gspread
 from google.oauth2.service_account import Credentials
 import os
+from pathlib import Path
 
 st.subheader("💰 Custos de Produtos (Google Sheets)")
 
-from pathlib import Path
-
-# Caminho absoluto até o arquivo da conta de serviço
-SERVICE_FILE = Path(__file__).parent / ".streamlit" / "service_account.json"
-
 try:
+    # Escopos de acesso ao Google Drive e Sheets
     scope = [
         "https://spreadsheets.google.com/feeds",
         "https://www.googleapis.com/auth/drive"
     ]
+
+    # Tenta autenticar via secrets do Streamlit (recomendado no Cloud)
     creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
     client = gspread.authorize(creds)
     st.success("📡 Conectado com sucesso ao Google Sheets!")
+
 except Exception as e:
     st.error(f"❌ Erro ao autenticar com Google Sheets: {e}")
-    client = None
-        client = gspread.authorize(creds)
-        st.success("📡 Conectado com sucesso ao Google Sheets!")
-    except Exception as e:
-        st.error(f"❌ Erro ao autenticar com Google Sheets: {e}")
-        client = None
-else:
-    st.error("❌ Arquivo service_account.json não encontrado na pasta .streamlit/")
     client = None
 
 # --- Garante que 'client' exista ---
@@ -75,6 +67,7 @@ if "client" not in locals() or client is None:
 SHEET_NAME = "CUSTOS_ML"  # nome da planilha criada no Google Sheets
 
 def carregar_custos_google():
+    """Lê custos diretamente do Google Sheets."""
     if not client:
         st.warning("⚠️ Google Sheets não autenticado.")
         return pd.DataFrame(columns=["SKU", "Produto", "Custo_Produto"])
@@ -92,6 +85,7 @@ def carregar_custos_google():
         return pd.DataFrame(columns=["SKU", "Produto", "Custo_Produto"])
 
 def salvar_custos_google(df):
+    """Atualiza custos diretamente no Google Sheets."""
     if not client:
         st.warning("⚠️ Google Sheets não autenticado.")
         return
@@ -102,6 +96,7 @@ def salvar_custos_google(df):
         st.success(f"💾 Custos salvos no Google Sheets em {datetime.now().strftime('%d/%m/%Y %H:%M')}")
     except Exception as e:
         st.error(f"Erro ao salvar custos no Google Sheets: {e}")
+
 
 # === BLOCO VISUAL ===
 st.markdown("---")
