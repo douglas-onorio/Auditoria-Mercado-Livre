@@ -36,7 +36,7 @@ Vendas com diferença **acima de {margem_limite}%** são classificadas como **an
 """
 )
 
-# === GESTÃO DE CUSTOS (INTEGRAÇÃO GOOGLE SHEETS) ===
+## === GESTÃO DE CUSTOS (INTEGRAÇÃO GOOGLE SHEETS) ===
 import gspread
 from google.oauth2.service_account import Credentials
 import pandas as pd
@@ -46,22 +46,25 @@ import streamlit as st
 st.subheader("💰 Custos de Produtos (Google Sheets)")
 
 try:
-    # Escopos de acesso ao Google Sheets e Drive
+    # Escopos de acesso
     scope = [
         "https://spreadsheets.google.com/feeds",
         "https://www.googleapis.com/auth/drive"
     ]
 
-    # Lê as credenciais direto dos secrets do Streamlit
-    if "gcp_service_account" in st.secrets:
-        info = dict(st.secrets["gcp_service_account"])
-    else:
-        raise ValueError("Credenciais GCP não encontradas em st.secrets.")
+    # Força leitura segura das credenciais
+    info = dict(st.secrets["gcp_service_account"])
 
-    # Corrige possíveis quebras de linha erradas na chave privada
-    if "private_key" in info and "-----BEGIN PRIVATE KEY-----" not in info["private_key"]:
-        info["private_key"] = info["private_key"].replace("\\n", "\n")
+    # Corrige qualquer formato de chave privada (quebras de linha ou escapes)
+    key = info.get("private_key", "")
+    if "\\n" in key:
+        info["private_key"] = key.replace("\\n", "\n")
+    elif "BEGIN PRIVATE KEY" in key and "\n" not in key:
+        # caso o TOML tenha removido todas as quebras de linha
+        info["private_key"] = key.replace("-----BEGIN PRIVATE KEY-----", "-----BEGIN PRIVATE KEY-----\n") \
+                                 .replace("-----END PRIVATE KEY-----", "\n-----END PRIVATE KEY-----")
 
+    # Autentica
     creds = Credentials.from_service_account_info(info, scopes=scope)
     client = gspread.authorize(creds)
     st.success("📡 Conectado com sucesso ao Google Sheets!")
@@ -71,16 +74,15 @@ except Exception as e:
     client = None
 
 
-# --- Garante que client exista ---
+# --- Garante client ---
 if "client" not in locals() or client is None:
     client = None
 
 
 # === FUNÇÕES DE LEITURA E GRAVAÇÃO ===
-SHEET_NAME = "CUSTOS_ML"  # nome da planilha criada no Google Sheets
+SHEET_NAME = "CUSTOS_ML"
 
 def carregar_custos_google():
-    """Lê custos diretamente do Google Sheets."""
     if not client:
         st.warning("⚠️ Google Sheets não autenticado.")
         return pd.DataFrame(columns=["SKU", "Produto", "Custo_Produto"])
@@ -97,9 +99,7 @@ def carregar_custos_google():
         st.warning(f"⚠️ Erro ao carregar custos do Google Sheets: {e}")
         return pd.DataFrame(columns=["SKU", "Produto", "Custo_Produto"])
 
-
 def salvar_custos_google(df):
-    """Atualiza custos diretamente no Google Sheets."""
     if not client:
         st.warning("⚠️ Google Sheets não autenticado.")
         return
