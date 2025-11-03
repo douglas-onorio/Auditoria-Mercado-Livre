@@ -9,12 +9,14 @@ st.title("💰 Gerenciador de Custos Mercado Livre")
 
 # === AUTENTICAÇÃO GOOGLE SHEETS ===
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-creds = Credentials.from_service_account_file("service_account.json", scopes=scope)
+
+# ✅ Usa as credenciais armazenadas em SECRETS do Streamlit Cloud
+creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
 client = gspread.authorize(creds)
 
 # === ABRIR PLANILHA ===
-SHEET_NAME = "CUSTOS_ML"
-sheet = client.open(Custos).sheet1
+SHEET_NAME = "CUSTOS_ML"  # nome exato da planilha no Google Sheets
+sheet = client.open(SHEET_NAME).sheet1   # ✅ estava faltando aspas aqui
 dados = sheet.get_all_records()
 df = pd.DataFrame(dados)
 
