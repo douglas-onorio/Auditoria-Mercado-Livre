@@ -53,8 +53,8 @@ try:
         "https://www.googleapis.com/auth/drive"
     ]
 
-    # Lê credenciais do secrets
-    info = st.secrets["gcp_service_account"]
+    # Lê credenciais do secrets e copia para dicionário
+    info = dict(st.secrets["gcp_service_account"])
 
     # 🔧 Corrige chave privada com quebras de linha reais
     if "\\n" in info["private_key"]:
@@ -67,6 +67,7 @@ try:
 except Exception as e:
     st.error(f"❌ Erro ao autenticar com Google Sheets: {e}")
     client = None
+
 
 # --- Garante client ---
 if "client" not in locals() or client is None:
