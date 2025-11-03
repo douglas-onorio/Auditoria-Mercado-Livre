@@ -41,28 +41,24 @@ import gspread
 from google.oauth2.service_account import Credentials
 import pandas as pd
 from datetime import datetime
-import json
 import streamlit as st
+import json
 
 st.subheader("💰 Custos de Produtos (Google Sheets)")
 
 try:
+    # Escopos obrigatórios do Google Sheets e Drive
     scope = [
         "https://spreadsheets.google.com/feeds",
         "https://www.googleapis.com/auth/drive"
     ]
 
-    # Captura as credenciais
-    info = dict(st.secrets["gcp_service_account"])
+    # Lê credenciais do secrets
+    info = st.secrets["gcp_service_account"]
 
-    # 🔧 força reconstrução da chave privada
-    pk = info.get("private_key", "")
-    pk = pk.replace("\\n", "\n").strip()
-    if not pk.startswith("-----BEGIN PRIVATE KEY-----"):
-        pk = "-----BEGIN PRIVATE KEY-----\n" + pk
-    if not pk.endswith("-----END PRIVATE KEY-----"):
-        pk += "\n-----END PRIVATE KEY-----"
-    info["private_key"] = pk
+    # 🔧 Corrige chave privada com quebras de linha reais
+    if "\\n" in info["private_key"]:
+        info["private_key"] = info["private_key"].replace("\\n", "\n")
 
     creds = Credentials.from_service_account_info(info, scopes=scope)
     client = gspread.authorize(creds)
@@ -72,6 +68,7 @@ except Exception as e:
     st.error(f"❌ Erro ao autenticar com Google Sheets: {e}")
     client = None
 
+# --- Garante client ---
 if "client" not in locals() or client is None:
     client = None
 
