@@ -4,4 +4,5 @@ xlsxwriter==3.2.0
 openpyxl==3.1.5
 plotly
 rich==13.9.4
-
+gspread==6.1.2
+google-auth==2.35.0
