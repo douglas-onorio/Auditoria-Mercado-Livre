@@ -105,20 +105,19 @@ def carregar_custos_google():
         )
 
         # 🔢 Converte custo para número, limpando R$, vírgulas, traços etc.
-if "Custo_Produto" in df_custos.columns:
-    df_custos["Custo_Produto"] = (
-        df_custos["Custo_Produto"]
-        .astype(str)
-        .str.replace("R$", "", regex=False)
-        .str.replace(",", ".", regex=False)
-        .str.replace("-", "0", regex=False)
-        .str.replace(" ", "", regex=False)
-        .replace("", "0")
-        .replace("nan", "0")
-        .replace("N/A", "0")
-        .astype(float)
-    )
-
+        if "Custo_Produto" in df_custos.columns:
+            df_custos["Custo_Produto"] = (
+                df_custos["Custo_Produto"]
+                .astype(str)
+                .str.replace("R$", "", regex=False)
+                .str.replace(",", ".", regex=False)
+                .str.replace("-", "0", regex=False)
+                .str.replace(" ", "", regex=False)
+                .replace("", "0")
+                .replace("nan", "0")
+                .replace("N/A", "0")
+                .astype(float)
+            )
 
         st.info("📡 Custos carregados diretamente do Google Sheets.")
         return df_custos
@@ -126,6 +125,7 @@ if "Custo_Produto" in df_custos.columns:
     except Exception as e:
         st.warning(f"⚠️ Erro ao carregar custos do Google Sheets: {e}")
         return pd.DataFrame(columns=["SKU", "Produto", "Custo_Produto"])
+
 
 
 def salvar_custos_google(df):
