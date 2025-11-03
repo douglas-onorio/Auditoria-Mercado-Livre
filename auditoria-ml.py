@@ -41,38 +41,29 @@ import gspread
 from google.oauth2.service_account import Credentials
 import os
 from pathlib import Path
+import json
 
 st.subheader("💰 Custos de Produtos (Google Sheets)")
 
-try:
-    # Escopos de acesso ao Google Drive e Sheets
-    scope = [
-        "https://spreadsheets.google.com/feeds",
-        "https://www.googleapis.com/auth/drive"
-    ]
+# Escopos de acesso ao Google Drive e Sheets
+scope = [
+    "https://spreadsheets.google.com/feeds",
+    "https://www.googleapis.com/auth/drive"
+]
 
-    # Tenta autenticar via secrets do Streamlit (recomendado no Cloud)
-    # Tenta autenticar via secrets do Streamlit
+# --- AUTENTICAÇÃO GOOGLE SHEETS (robusta e compatível com o Streamlit Cloud) ---
 try:
     if "gcp_service_account" in st.secrets:
         info = dict(st.secrets["gcp_service_account"])
     else:
-        # fallback manual caso o Streamlit não parseie o JSON
-        import json
+        # fallback caso o Streamlit entregue o conteúdo como string JSON
         info = json.loads(st.secrets.to_dict().get("gcp_service_account", "{}"))
 
+    # Corrige caso as quebras de linha venham escapadas
     if "private_key" in info and "-----BEGIN PRIVATE KEY-----" not in info["private_key"]:
-        # Corrige caso as quebras de linha estejam removidas
         info["private_key"] = info["private_key"].replace("\\n", "\n")
 
     creds = Credentials.from_service_account_info(info, scopes=scope)
-    client = gspread.authorize(creds)
-    st.success("📡 Conectado com sucesso ao Google Sheets!")
-
-except Exception as e:
-    st.error(f"❌ Erro ao autenticar com Google Sheets: {e}")
-    client = None
-
     client = gspread.authorize(creds)
     st.success("📡 Conectado com sucesso ao Google Sheets!")
 
@@ -116,7 +107,6 @@ def salvar_custos_google(df):
         st.success(f"💾 Custos salvos no Google Sheets em {datetime.now().strftime('%d/%m/%Y %H:%M')}")
     except Exception as e:
         st.error(f"Erro ao salvar custos no Google Sheets: {e}")
-
 
 # === BLOCO VISUAL ===
 st.markdown("---")
