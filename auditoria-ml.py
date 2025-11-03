@@ -39,32 +39,30 @@ Vendas com diferença **acima de {margem_limite}%** são classificadas como **an
 # === GESTÃO DE CUSTOS (INTEGRAÇÃO GOOGLE SHEETS) ===
 import gspread
 from google.oauth2.service_account import Credentials
-import os
-from pathlib import Path
-import json
+import pandas as pd
+from datetime import datetime
+import streamlit as st
 
 st.subheader("💰 Custos de Produtos (Google Sheets)")
 
-# Escopos de acesso ao Google Drive e Sheets
-scope = [
-    "https://spreadsheets.google.com/feeds",
-    "https://www.googleapis.com/auth/drive"
-]
-
-# --- AUTENTICAÇÃO GOOGLE SHEETS (robusta e compatível com o Streamlit Cloud) ---
 try:
+    # Escopos de acesso ao Google Sheets e Drive
+    scope = [
+        "https://spreadsheets.google.com/feeds",
+        "https://www.googleapis.com/auth/drive"
+    ]
+
+    # Lê as credenciais direto dos secrets do Streamlit
     if "gcp_service_account" in st.secrets:
         info = dict(st.secrets["gcp_service_account"])
     else:
-        # fallback caso o Streamlit entregue o conteúdo como string JSON
-        info = json.loads(st.secrets.to_dict().get("gcp_service_account", "{}"))
+        raise ValueError("Credenciais GCP não encontradas em st.secrets.")
 
-    # Corrige caso as quebras de linha venham escapadas
+    # Corrige possíveis quebras de linha erradas na chave privada
     if "private_key" in info and "-----BEGIN PRIVATE KEY-----" not in info["private_key"]:
         info["private_key"] = info["private_key"].replace("\\n", "\n")
 
-    SERVICE_FILE = Path(__file__).parent / ".streamlit" / "service_account.json"
-    creds = Credentials.from_service_account_file(SERVICE_FILE, scopes=scope)
+    creds = Credentials.from_service_account_info(info, scopes=scope)
     client = gspread.authorize(creds)
     st.success("📡 Conectado com sucesso ao Google Sheets!")
 
@@ -72,10 +70,13 @@ except Exception as e:
     st.error(f"❌ Erro ao autenticar com Google Sheets: {e}")
     client = None
 
-# --- Garante que 'client' exista ---
+
+# --- Garante que client exista ---
 if "client" not in locals() or client is None:
     client = None
 
+
+# === FUNÇÕES DE LEITURA E GRAVAÇÃO ===
 SHEET_NAME = "CUSTOS_ML"  # nome da planilha criada no Google Sheets
 
 def carregar_custos_google():
@@ -96,6 +97,7 @@ def carregar_custos_google():
         st.warning(f"⚠️ Erro ao carregar custos do Google Sheets: {e}")
         return pd.DataFrame(columns=["SKU", "Produto", "Custo_Produto"])
 
+
 def salvar_custos_google(df):
     """Atualiza custos diretamente no Google Sheets."""
     if not client:
@@ -108,6 +110,7 @@ def salvar_custos_google(df):
         st.success(f"💾 Custos salvos no Google Sheets em {datetime.now().strftime('%d/%m/%Y %H:%M')}")
     except Exception as e:
         st.error(f"Erro ao salvar custos no Google Sheets: {e}")
+
 
 # === BLOCO VISUAL ===
 st.markdown("---")
