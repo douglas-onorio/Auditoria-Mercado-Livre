@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 from io import BytesIO
 import re
 import os
@@ -141,7 +141,7 @@ def salvar_custos_google(df):
         sheet = client.open(SHEET_NAME).sheet1
         sheet.clear()
         sheet.update([df.columns.values.tolist()] + df.values.tolist())
-        st.success(f"💾 Custos salvos no Google Sheets em {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+        st.success(f"💾 Custos salvos no Google Sheets em {(datetime.utcnow() - timedelta(hours=3)).strftime('%d/%m/%Y %H:%M')}")
     except Exception as e:
         st.error(f"Erro ao salvar custos no Google Sheets: {e}")
 
