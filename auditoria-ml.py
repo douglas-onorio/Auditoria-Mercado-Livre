@@ -197,10 +197,6 @@ if st.button("🗑️ Remover arquivo carregado"):
     st.cache_data.clear()
     st.rerun()
 
-
-# === UPLOAD DE VENDAS ===
-uploaded_file = st.file_uploader("Envie o arquivo Excel de vendas (.xlsx)", type=["xlsx"])
-
 if uploaded_file:
     # --- LEITURA COMPLETA ---
     df = pd.read_excel(uploaded_file, sheet_name="Vendas BR", header=5)
