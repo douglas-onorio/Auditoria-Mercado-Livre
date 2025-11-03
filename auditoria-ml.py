@@ -48,16 +48,17 @@ from pathlib import Path
 # Caminho absoluto até o arquivo da conta de serviço
 SERVICE_FILE = Path(__file__).parent / ".streamlit" / "service_account.json"
 
-if not SERVICE_FILE.exists():
-    SERVICE_FILE = Path(".streamlit/service_account.json")  # fallback
-
-if os.path.exists(SERVICE_FILE):
-    try:
-        scope = [
-            "https://spreadsheets.google.com/feeds",
-            "https://www.googleapis.com/auth/drive"
-        ]
-        creds = Credentials.from_service_account_file(SERVICE_FILE, scopes=scope)
+try:
+    scope = [
+        "https://spreadsheets.google.com/feeds",
+        "https://www.googleapis.com/auth/drive"
+    ]
+    creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
+    client = gspread.authorize(creds)
+    st.success("📡 Conectado com sucesso ao Google Sheets!")
+except Exception as e:
+    st.error(f"❌ Erro ao autenticar com Google Sheets: {e}")
+    client = None
         client = gspread.authorize(creds)
         st.success("📡 Conectado com sucesso ao Google Sheets!")
     except Exception as e:
