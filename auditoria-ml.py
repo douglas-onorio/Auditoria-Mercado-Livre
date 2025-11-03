@@ -63,7 +63,8 @@ try:
     if "private_key" in info and "-----BEGIN PRIVATE KEY-----" not in info["private_key"]:
         info["private_key"] = info["private_key"].replace("\\n", "\n")
 
-    creds = Credentials.from_service_account_info(info, scopes=scope)
+    SERVICE_FILE = Path(__file__).parent / ".streamlit" / "service_account.json"
+    creds = Credentials.from_service_account_file(SERVICE_FILE, scopes=scope)
     client = gspread.authorize(creds)
     st.success("📡 Conectado com sucesso ao Google Sheets!")
 
