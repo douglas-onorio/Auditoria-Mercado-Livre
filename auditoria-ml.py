@@ -8,14 +8,6 @@ import os
 from pathlib import Path
 import tempfile
 
-# === DEBUG: verificar formato da private_key ===
-try:
-    pk_preview = repr(st.secrets["gcp_service_account"]["private_key"][:150])
-    st.write("🔍 Prévia da private_key:", pk_preview)
-except Exception as e:
-    st.error(f"Erro ao inspecionar secrets: {e}")
-
-
 # === CRIAÇÃO SEGURA DO DIRETÓRIO ===
 try:
     BASE_DIR = Path("dados")
