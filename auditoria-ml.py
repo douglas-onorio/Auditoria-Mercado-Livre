@@ -90,42 +90,38 @@ def carregar_custos_google():
         df_custos = pd.DataFrame(dados)
         df_custos.columns = df_custos.columns.str.strip()
 
-        # 🔧 Corrige nomes de colunas comuns (aceita variações)
+        # 🔧 Corrige nomes de colunas comuns
         rename_map = {
             "sku": "SKU",
             "produto": "Produto",
+            "descrição": "Produto",
+            "descricao": "Produto",
             "custo": "Custo_Produto",
             "custo_produto": "Custo_Produto",
             "preço_de_custo": "Custo_Produto",
             "preco_de_custo": "Custo_Produto"
         }
-        df_custos.rename(
-            columns={c: rename_map.get(c.lower(), c) for c in df_custos.columns},
-            inplace=True
-        )
+        df_custos.rename(columns={c: rename_map.get(c.lower(), c) for c in df_custos.columns}, inplace=True)
 
-        # 🔢 Converte custo para número, limpando R$, vírgulas, traços etc.
+        # 🔢 Conversão robusta do campo de custo
         if "Custo_Produto" in df_custos.columns:
-            df_custos["Custo_Produto"] = (
-                df_custos["Custo_Produto"]
-                .astype(str)
-                .str.replace("R$", "", regex=False)
-                .str.replace(".", "", regex=False)     # remove separador de milhar
-                .str.replace(",", ".", regex=False)    # troca vírgula por ponto decimal
-                .str.replace("-", "0", regex=False)
-                .str.replace(" ", "", regex=False)
-                .replace("", "0")
-                .replace("nan", "0")
-                .replace("N/A", "0")
-                .astype(float)
-            )
+            def parse_valor(v):
+                v = str(v).strip().replace("R$", "").replace(" ", "")
+                if v in ["", "-", "nan", "N/A"]:
+                    return 0.0
+                v = v.replace(".", "").replace(",", ".")  # remove milhar, troca vírgula por ponto
+                try:
+                    val = float(v)
+                    # Se o número for pequeno (2.955) e tiver 3 casas decimais originais, corrige
+                    if val < 10:
+                        val *= 10
+                    if val < 1:
+                        val *= 100
+                    return round(val, 2)
+                except:
+                    return 0.0
 
-            # ⚙️ Correção automática de escala (ex: 2.955 -> 29.55 ou 0.295 -> 29.5)
-            media = df_custos["Custo_Produto"].mean()
-            if media < 1:
-                df_custos["Custo_Produto"] *= 100
-            elif media < 10:
-                df_custos["Custo_Produto"] *= 10
+            df_custos["Custo_Produto"] = df_custos["Custo_Produto"].apply(parse_valor)
 
         st.info("📡 Custos carregados diretamente do Google Sheets.")
         return df_custos
