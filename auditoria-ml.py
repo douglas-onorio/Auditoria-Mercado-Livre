@@ -52,7 +52,27 @@ try:
     ]
 
     # Tenta autenticar via secrets do Streamlit (recomendado no Cloud)
-    creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
+    # Tenta autenticar via secrets do Streamlit
+try:
+    if "gcp_service_account" in st.secrets:
+        info = dict(st.secrets["gcp_service_account"])
+    else:
+        # fallback manual caso o Streamlit não parseie o JSON
+        import json
+        info = json.loads(st.secrets.to_dict().get("gcp_service_account", "{}"))
+
+    if "private_key" in info and "-----BEGIN PRIVATE KEY-----" not in info["private_key"]:
+        # Corrige caso as quebras de linha estejam removidas
+        info["private_key"] = info["private_key"].replace("\\n", "\n")
+
+    creds = Credentials.from_service_account_info(info, scopes=scope)
+    client = gspread.authorize(creds)
+    st.success("📡 Conectado com sucesso ao Google Sheets!")
+
+except Exception as e:
+    st.error(f"❌ Erro ao autenticar com Google Sheets: {e}")
+    client = None
+
     client = gspread.authorize(creds)
     st.success("📡 Conectado com sucesso ao Google Sheets!")
 
