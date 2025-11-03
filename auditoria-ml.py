@@ -47,13 +47,11 @@ import json
 st.subheader("💰 Custos de Produtos (Google Sheets)")
 
 try:
-    # Escopos obrigatórios do Google Sheets e Drive
     scope = [
         "https://spreadsheets.google.com/feeds",
         "https://www.googleapis.com/auth/drive"
     ]
 
-    # 🔍 DEBUG: verifica o conteúdo dos secrets
     if "gcp_service_account" in st.secrets:
         info = dict(st.secrets["gcp_service_account"])
         st.write("🔍 Chave detectada, campos lidos:")
@@ -68,11 +66,9 @@ try:
         st.error("❌ Bloco [gcp_service_account] não encontrado em st.secrets.")
         raise ValueError("gcp_service_account não encontrado")
 
-    # 🔧 Corrige chave privada com quebras de linha reais
-    if "\\n" in info["private_key"]:
-        info["private_key"] = info["private_key"].replace("\\n", "\n")
+    # 🔧 Corrige as quebras de linha na chave
+    info["private_key"] = info["private_key"].encode().decode("unicode_escape")
 
-    # Autentica e conecta
     creds = Credentials.from_service_account_info(info, scopes=scope)
     client = gspread.authorize(creds)
     st.success("📡 Conectado com sucesso ao Google Sheets!")
