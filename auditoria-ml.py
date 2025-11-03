@@ -169,6 +169,33 @@ custos_editados = st.data_editor(custo_df, num_rows="dynamic", use_container_wid
 if st.button("💾 Atualizar custos no Google Sheets"):
     salvar_custos_google(custos_editados)
 
+# === UPLOAD DE VENDAS ===
+st.markdown("---")
+st.subheader("📦 Upload de Vendas Mercado Livre")
+
+# === CONTROLE DE UPLOAD / REINICIALIZAÇÃO ===
+if "uploaded_file" not in st.session_state:
+    st.session_state["uploaded_file"] = None
+
+uploaded_file = st.file_uploader("📤 Envie o arquivo Excel de vendas (.xlsx)", type=["xlsx"])
+
+if uploaded_file:
+    # Se o arquivo mudou, limpa cache e atualiza
+    if st.session_state["uploaded_file"] != uploaded_file.name:
+        st.cache_data.clear()
+        st.session_state["uploaded_file"] = uploaded_file.name
+        st.success(f"✅ Arquivo {uploaded_file.name} carregado com sucesso!")
+
+    # --- LEITURA COMPLETA ---
+    df = pd.read_excel(uploaded_file, sheet_name="Vendas BR", header=5)
+    df.columns = df.columns.str.strip().str.replace(r"\s+", " ", regex=True)
+    st.dataframe(df.head(20), use_container_width=True)
+
+# Botão para limpar o arquivo e forçar reload
+if st.button("🗑️ Remover arquivo carregado"):
+    st.session_state["uploaded_file"] = None
+    st.cache_data.clear()
+    st.rerun()
 
 
 # === UPLOAD DE VENDAS ===
