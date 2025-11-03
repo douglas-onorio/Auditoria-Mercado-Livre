@@ -39,10 +39,17 @@ Vendas com diferença **acima de {margem_limite}%** são classificadas como **an
 # === GESTÃO DE CUSTOS (INTEGRAÇÃO GOOGLE SHEETS) ===
 import gspread
 from google.oauth2.service_account import Credentials
+import os
 
-scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
-client = gspread.authorize(creds)
+# === AUTENTICAÇÃO GOOGLE SHEETS ===
+SERVICE_FILE = ".streamlit/service_account.json"
+
+if not os.path.exists(SERVICE_FILE):
+    st.error("❌ Arquivo service_account.json não encontrado na pasta .streamlit/")
+else:
+    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    creds = Credentials.from_service_account_file(SERVICE_FILE, scopes=scope)
+    client = gspread.authorize(creds)
 
 SHEET_NAME = "CUSTOS_ML"  # nome da planilha criada no Google Sheets
 
