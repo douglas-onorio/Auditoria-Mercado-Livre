@@ -61,6 +61,21 @@ try:
         info["private_key"] = info["private_key"].replace("\\n", "\n")
 
     creds = Credentials.from_service_account_info(info, scopes=scope)
+    import json
+
+if "gcp_service_account" in st.secrets:
+    info = dict(st.secrets["gcp_service_account"])
+    st.write("🔍 Chave detectada, campos lidos:")
+    st.json({k: ("<OCULTO>" if "key" in k or "token" in k else v) for k, v in info.items()})
+
+    if "private_key" in info:
+        key_preview = info["private_key"][:50]
+        st.write(f"🔑 Prévia da chave: {key_preview}... ({len(info['private_key'])} caracteres)")
+    else:
+        st.error("❌ Campo 'private_key' não encontrado nos secrets.")
+else:
+    st.error("❌ Bloco [gcp_service_account] não encontrado em st.secrets.")
+
     client = gspread.authorize(creds)
     st.success("📡 Conectado com sucesso ao Google Sheets!")
 
