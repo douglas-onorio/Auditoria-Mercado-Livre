@@ -110,7 +110,8 @@ def carregar_custos_google():
                 df_custos["Custo_Produto"]
                 .astype(str)
                 .str.replace("R$", "", regex=False)
-                .str.replace(",", ".", regex=False)
+                .str.replace(".", "", regex=False)     # remove separador de milhar
+                .str.replace(",", ".", regex=False)    # troca vírgula por ponto decimal
                 .str.replace("-", "0", regex=False)
                 .str.replace(" ", "", regex=False)
                 .replace("", "0")
@@ -119,14 +120,15 @@ def carregar_custos_google():
                 .astype(float)
             )
 
+            # Corrige casos em que o valor veio 10x menor (ex: 2.956 -> 29.56)
+            df_custos.loc[df_custos["Custo_Produto"] < 10, "Custo_Produto"] *= 10
+
         st.info("📡 Custos carregados diretamente do Google Sheets.")
         return df_custos
 
     except Exception as e:
         st.warning(f"⚠️ Erro ao carregar custos do Google Sheets: {e}")
         return pd.DataFrame(columns=["SKU", "Produto", "Custo_Produto"])
-
-
 
 def salvar_custos_google(df):
     """Atualiza custos diretamente no Google Sheets."""
