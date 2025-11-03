@@ -36,45 +36,53 @@ Vendas com diferença **acima de {margem_limite}%** são classificadas como **an
 """
 )
 
-# === GESTÃO DE CUSTOS (NOVO BLOCO) ===
-def carregar_custos(uploaded_file=None):
-    """Lê custos de upload ou do arquivo salvo."""
-    if uploaded_file:
-        df_custos = pd.read_excel(uploaded_file)
+# === GESTÃO DE CUSTOS (INTEGRAÇÃO GOOGLE SHEETS) ===
+import gspread
+from google.oauth2.service_account import Credentials
+
+scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
+client = gspread.authorize(creds)
+
+SHEET_NAME = "CUSTOS_ML"  # nome da planilha criada no Google Sheets
+
+def carregar_custos_google():
+    try:
+        sheet = client.open(SHEET_NAME).sheet1
+        dados = sheet.get_all_records()
+        if not dados:
+            return pd.DataFrame(columns=["SKU", "Produto", "Custo_Produto"])
+        df_custos = pd.DataFrame(dados)
         df_custos.columns = df_custos.columns.str.strip()
-        try:
-            df_custos.to_excel(ARQUIVO_CUSTOS_SALVOS, index=False)
-            st.success("📥 Nova planilha de custos salva automaticamente!")
-        except Exception:
-            st.warning("⚠️ Ambiente em modo protegido — custos não foram salvos permanentemente.")
+        st.info("📡 Custos carregados diretamente do Google Sheets.")
         return df_custos
-    elif ARQUIVO_CUSTOS_SALVOS.exists():
-        st.info("📂 Custos carregados automaticamente do arquivo salvo.")
-        return pd.read_excel(ARQUIVO_CUSTOS_SALVOS)
-    else:
-        st.warning("⚠️ Nenhum custo encontrado. Envie ou edite manualmente para criar um novo.")
+    except Exception as e:
+        st.warning(f"⚠️ Erro ao carregar custos do Google Sheets: {e}")
         return pd.DataFrame(columns=["SKU", "Produto", "Custo_Produto"])
 
-def salvar_custos(df):
+def salvar_custos_google(df):
     try:
-        df.to_excel(ARQUIVO_CUSTOS_SALVOS, index=False)
-        st.success("💾 Custos atualizados e salvos com sucesso!")
-    except Exception:
-        st.warning("⚠️ Ambiente em modo protegido — custos não foram salvos permanentemente.")
+        sheet = client.open(SHEET_NAME).sheet1
+        sheet.clear()
+        sheet.update([df.columns.values.tolist()] + df.values.tolist())
+        st.success(f"💾 Custos salvos no Google Sheets em {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+    except Exception as e:
+        st.error(f"Erro ao salvar custos no Google Sheets: {e}")
 
-uploaded_custo = st.sidebar.file_uploader("📦 Planilha de custos (opcional)", type=["xlsx"])
-custo_df = carregar_custos(uploaded_custo)
-
-# === AJUSTE VISUAL DE SKUS EM CUSTOS ===
-if not custo_df.empty and "SKU" in custo_df.columns:
-    custo_df["SKU"] = custo_df["SKU"].astype(str)
-    custo_df["SKU"] = custo_df["SKU"].str.replace(r"[^\d]", "", regex=True)
-
+# === BLOCO VISUAL ===
 st.markdown("---")
-st.subheader("✏️ Edição de Custos")
-custos_editados = st.data_editor(custo_df, num_rows="dynamic")
-if st.button("💾 Salvar custos atualizados"):
-    salvar_custos(custos_editados)
+st.subheader("💰 Custos de Produtos (Google Sheets)")
+
+custo_df = carregar_custos_google()
+if not custo_df.empty:
+    custo_df["SKU"] = custo_df["SKU"].astype(str).str.replace(r"[^\d]", "", regex=True)
+else:
+    st.warning("⚠️ Nenhum custo encontrado. Você pode adicionar manualmente abaixo.")
+
+custos_editados = st.data_editor(custo_df, num_rows="dynamic", use_container_width=True)
+if st.button("💾 Atualizar custos no Google Sheets"):
+    salvar_custos_google(custos_editados)
+
 
 
 # === UPLOAD DE VENDAS ===
