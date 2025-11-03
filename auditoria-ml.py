@@ -120,9 +120,11 @@ def carregar_custos_google():
                 .astype(float)
             )
 
-            # ⚙️ Correção automática de escala (ex: 2.955 -> 29.55)
+            # ⚙️ Correção automática de escala (ex: 2.955 -> 29.55 ou 0.295 -> 29.5)
             media = df_custos["Custo_Produto"].mean()
-            if media < 10:
+            if media < 1:
+                df_custos["Custo_Produto"] *= 100
+            elif media < 10:
                 df_custos["Custo_Produto"] *= 10
 
         st.info("📡 Custos carregados diretamente do Google Sheets.")
