@@ -111,16 +111,24 @@ def carregar_custos_google():
                 v = str(v).strip()
                 if v in ["", "-", "nan", "N/A", "None"]:
                     return 0.0
-                v = v.replace("R$", "").replace(" ", "").replace(".", "").replace(",", ".")
+
+                v = v.replace("R$", "").replace(" ", "")
+                # Detecta o padrão de separadores
+                if "," in v and "." in v:
+                    # Ex: 1.234,56 → 1234.56
+                    v = v.replace(".", "").replace(",", ".")
+                elif "," in v and "." not in v:
+                    # Ex: 162,49 → 162.49
+                    v = v.replace(",", ".")
+                elif "." in v and "," not in v:
+                    # Ex: 162.49 → 162.49 (mantém)
+                    pass
+
                 try:
                     val = float(v)
-                    # 🔍 Corrige apenas se o número for muito alto (ex: 2956 → 29.56)
+                    # Corrige apenas valores absurdos (erro de escala)
                     if val > 999:
                         val = val / 100
-                    # Corrige casos multiplicados por 10 (ex: 295 → 29.5)
-                    elif 100 < val < 1000:
-                        val = val / 10
-                    # Mantém valores normais (10–999)
                     return round(val, 2)
                 except:
                     return 0.0
@@ -133,7 +141,6 @@ def carregar_custos_google():
     except Exception as e:
         st.warning(f"⚠️ Erro ao carregar custos do Google Sheets: {e}")
         return pd.DataFrame(columns=["SKU", "Produto", "Custo_Produto"])
-
 
 def salvar_custos_google(df):
     """Atualiza custos diretamente no Google Sheets."""
