@@ -47,28 +47,21 @@ import json
 st.subheader("💰 Custos de Produtos (Google Sheets)")
 
 try:
+    # Escopos obrigatórios do Google Sheets e Drive
     scope = [
         "https://spreadsheets.google.com/feeds",
         "https://www.googleapis.com/auth/drive"
     ]
 
-    if "gcp_service_account" in st.secrets:
-        info = dict(st.secrets["gcp_service_account"])
-        st.write("🔍 Chave detectada, campos lidos:")
-        st.json({k: ("<OCULTO>" if "key" in k or "token" in k else v) for k, v in info.items()})
+    if "gcp_service_account" not in st.secrets:
+        raise ValueError("❌ Bloco [gcp_service_account] não encontrado em st.secrets.")
 
-        if "private_key" in info:
-            key_preview = info["private_key"][:50]
-            st.write(f"🔑 Prévia da chave: {key_preview}... ({len(info['private_key'])} caracteres)")
-        else:
-            st.error("❌ Campo 'private_key' não encontrado nos secrets.")
-    else:
-        st.error("❌ Bloco [gcp_service_account] não encontrado em st.secrets.")
-        raise ValueError("gcp_service_account não encontrado")
+    info = dict(st.secrets["gcp_service_account"])
 
-    # 🔧 Corrige as quebras de linha na chave
+    # Corrige quebras de linha na private_key
     info["private_key"] = info["private_key"].encode().decode("unicode_escape")
 
+    # Autentica e conecta
     creds = Credentials.from_service_account_info(info, scopes=scope)
     client = gspread.authorize(creds)
     st.success("📡 Conectado com sucesso ao Google Sheets!")
@@ -77,13 +70,15 @@ except Exception as e:
     st.error(f"❌ Erro ao autenticar com Google Sheets: {e}")
     client = None
 
-# --- Garante client ---
+
+# --- Garante que o client exista ---
 if "client" not in locals() or client is None:
     client = None
 
-SHEET_NAME = "CUSTOS_ML"
+SHEET_NAME = "CUSTOS_ML"  # nome da planilha no Google Sheets
 
 def carregar_custos_google():
+    """Lê custos diretamente do Google Sheets."""
     if not client:
         st.warning("⚠️ Google Sheets não autenticado.")
         return pd.DataFrame(columns=["SKU", "Produto", "Custo_Produto"])
@@ -101,6 +96,7 @@ def carregar_custos_google():
         return pd.DataFrame(columns=["SKU", "Produto", "Custo_Produto"])
 
 def salvar_custos_google(df):
+    """Atualiza custos diretamente no Google Sheets."""
     if not client:
         st.warning("⚠️ Google Sheets não autenticado.")
         return
@@ -111,7 +107,6 @@ def salvar_custos_google(df):
         st.success(f"💾 Custos salvos no Google Sheets em {datetime.now().strftime('%d/%m/%Y %H:%M')}")
     except Exception as e:
         st.error(f"Erro ao salvar custos no Google Sheets: {e}")
-
 
 # === BLOCO VISUAL ===
 st.markdown("---")
