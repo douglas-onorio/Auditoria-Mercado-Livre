@@ -500,7 +500,7 @@ if uploaded_file:
     df["Margem_Liquida_%"] = ((df["Lucro_Real"] / df["Valor_Venda"]) * 100).round(2)
 
 
-    # === PLANILHA DE CUSTOS ===
+       # === PLANILHA DE CUSTOS ===
     custo_carregado = False
     if not custo_df.empty:
         try:
@@ -514,7 +514,20 @@ if uploaded_file:
         except Exception as e:
             st.error(f"Erro ao aplicar custos: {e}")
 
-# === EXCLUI CANCELAMENTOS DO CÁLCULO ===
+    # === AJUSTE FINAL: ZERA PACOTES APÓS REDISTRIBUIÇÃO ===
+    if "Estado" in df.columns:
+        mask_pacotes = df["Estado"].str.contains("Pacote de", case=False, na=False)
+        campos_financeiros = [
+            "Lucro_Real", "Lucro_Liquido", "Margem_Liquida_%",
+            "Margem_Final_%", "Markup_%", "Lucro_Bruto",
+            "Custo_Produto_Total"
+        ]
+        for campo in campos_financeiros:
+            if campo in df.columns:
+                df.loc[mask_pacotes, campo] = 0.0
+        df.loc[mask_pacotes, "Status"] = "🔹 Pacote Agrupado (Somente Controle)"
+
+    # === EXCLUI CANCELAMENTOS DO CÁLCULO ===
     df_validas = df[df["Status"] != "🟦 Cancelamento Correto"]
 
     # === RESUMO ===
