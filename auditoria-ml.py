@@ -36,35 +36,34 @@ Vendas com diferença **acima de {margem_limite}%** são classificadas como **an
 """
 )
 
-## === GESTÃO DE CUSTOS (INTEGRAÇÃO GOOGLE SHEETS) ===
+# === GESTÃO DE CUSTOS (INTEGRAÇÃO GOOGLE SHEETS) ===
 import gspread
 from google.oauth2.service_account import Credentials
 import pandas as pd
 from datetime import datetime
+import json
 import streamlit as st
 
 st.subheader("💰 Custos de Produtos (Google Sheets)")
 
 try:
-    # Escopos de acesso
     scope = [
         "https://spreadsheets.google.com/feeds",
         "https://www.googleapis.com/auth/drive"
     ]
 
-    # Força leitura segura das credenciais
+    # Captura as credenciais
     info = dict(st.secrets["gcp_service_account"])
 
-    # Corrige qualquer formato de chave privada (quebras de linha ou escapes)
-    key = info.get("private_key", "")
-    if "\\n" in key:
-        info["private_key"] = key.replace("\\n", "\n")
-    elif "BEGIN PRIVATE KEY" in key and "\n" not in key:
-        # caso o TOML tenha removido todas as quebras de linha
-        info["private_key"] = key.replace("-----BEGIN PRIVATE KEY-----", "-----BEGIN PRIVATE KEY-----\n") \
-                                 .replace("-----END PRIVATE KEY-----", "\n-----END PRIVATE KEY-----")
+    # 🔧 força reconstrução da chave privada
+    pk = info.get("private_key", "")
+    pk = pk.replace("\\n", "\n").strip()
+    if not pk.startswith("-----BEGIN PRIVATE KEY-----"):
+        pk = "-----BEGIN PRIVATE KEY-----\n" + pk
+    if not pk.endswith("-----END PRIVATE KEY-----"):
+        pk += "\n-----END PRIVATE KEY-----"
+    info["private_key"] = pk
 
-    # Autentica
     creds = Credentials.from_service_account_info(info, scopes=scope)
     client = gspread.authorize(creds)
     st.success("📡 Conectado com sucesso ao Google Sheets!")
@@ -73,13 +72,9 @@ except Exception as e:
     st.error(f"❌ Erro ao autenticar com Google Sheets: {e}")
     client = None
 
-
-# --- Garante client ---
 if "client" not in locals() or client is None:
     client = None
 
-
-# === FUNÇÕES DE LEITURA E GRAVAÇÃO ===
 SHEET_NAME = "CUSTOS_ML"
 
 def carregar_custos_google():
