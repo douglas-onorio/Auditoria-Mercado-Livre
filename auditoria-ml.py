@@ -105,20 +105,22 @@ def carregar_custos_google():
         }
         df_custos.rename(columns={c: rename_map.get(c.lower(), c) for c in df_custos.columns}, inplace=True)
 
-        # 🔢 Converte custos respeitando o formato BR
+        # 🔢 Converte custos respeitando o formato BR e ajusta escala corretamente
         if "Custo_Produto" in df_custos.columns:
             def corrigir_valor(v):
                 v = str(v).strip()
-                if v in ["", "-", "nan", "N/A", "None", "0"]:
+                if v in ["", "-", "nan", "N/A", "None"]:
                     return 0.0
-                # remove R$, pontos de milhar e troca vírgula por ponto
-                v = v.replace("R$", "").replace(".", "").replace(",", ".").replace(" ", "")
+                v = v.replace("R$", "").replace(" ", "").replace(".", "").replace(",", ".")
                 try:
                     val = float(v)
-                    if val > 1000:  # casos absurdos (2956 → 29.56)
+                    # 🔍 Corrige apenas se o número for muito alto (ex: 2956 → 29.56)
+                    if val > 999:
                         val = val / 100
-                    elif val > 100:
+                    # Corrige casos multiplicados por 10 (ex: 295 → 29.5)
+                    elif 100 < val < 1000:
                         val = val / 10
+                    # Mantém valores normais (10–999)
                     return round(val, 2)
                 except:
                     return 0.0
@@ -131,6 +133,7 @@ def carregar_custos_google():
     except Exception as e:
         st.warning(f"⚠️ Erro ao carregar custos do Google Sheets: {e}")
         return pd.DataFrame(columns=["SKU", "Produto", "Custo_Produto"])
+
 
 def salvar_custos_google(df):
     """Atualiza custos diretamente no Google Sheets."""
