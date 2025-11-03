@@ -43,7 +43,13 @@ import os
 
 st.subheader("💰 Custos de Produtos (Google Sheets)")
 
-SERVICE_FILE = ".streamlit/service_account.json"
+from pathlib import Path
+
+# Caminho absoluto até o arquivo da conta de serviço
+SERVICE_FILE = Path(__file__).parent / ".streamlit" / "service_account.json"
+
+if not SERVICE_FILE.exists():
+    SERVICE_FILE = Path(".streamlit/service_account.json")  # fallback
 
 if os.path.exists(SERVICE_FILE):
     try:
