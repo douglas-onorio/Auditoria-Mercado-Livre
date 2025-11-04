@@ -699,6 +699,13 @@ if uploaded_file and df is not None:
     else:
         st.warning("⚠️ Nenhuma coluna de tipo de anúncio encontrada no arquivo enviado.")
 
+st.markdown("---")
+st.subheader("🧩 Diagnóstico da Coluna Origem_Pacote")
+if "Origem_Pacote" in df.columns:
+    st.dataframe(df[["Venda", "Produto", "Origem_Pacote"]].head(20))
+else:
+    st.warning("A coluna 'Origem_Pacote' não existe no DataFrame.")
+
 # === ANÁLISE ANALÍTICA DE MARGEM POR ITEM DE PACOTE ===
 st.markdown("---")
 st.subheader("📦 Margem Analítica por Item de Pacote")
