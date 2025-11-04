@@ -294,32 +294,37 @@ if uploaded_file:
 
         total_tarifas_calc = total_recebido_calc = total_frete_calc = 0
 
-        for j in subset.index:
-            preco_unit = float(subset.loc[j, "Preco_Unitario_Item"] or 0)
-            tipo_anuncio = subset.loc[j, "Tipo_Anuncio"]
-            perc = calcular_percentual(tipo_anuncio)
-            custo_fixo = calcular_custo_fixo(preco_unit)
-        # calcula tarifa com base no valor total do item (preço × unidades)
-            valor_item_total = preco_unit * unidades_item
-            tarifa_total = round(valor_item_total * perc + (custo_fixo * unidades_item), 2)
+    for j in subset.index:
+        preco_unit = float(subset.loc[j, "Preco_Unitario_Item"] or 0)
+        tipo_anuncio = subset.loc[j, "Tipo_Anuncio"]
+        perc = calcular_percentual(tipo_anuncio)
+        custo_fixo = calcular_custo_fixo(preco_unit)
 
-            proporcao = preco_unit / soma_precos
-            valor_recebido_item = round(total_recebido * proporcao, 2)
-            unidades_item = subset.loc[j, coluna_unidades]
-            frete_item = round(frete_total * (unidades_item / total_unidades), 2)
+        # 🧮 quantidade comprada do item
+        unidades_item = subset.loc[j, coluna_unidades]
 
-            df.loc[j, "Valor_Venda"] = preco_unit
-            df.loc[j, "Valor_Recebido"] = valor_recebido_item
-            df.loc[j, "Tarifa_Venda"] = tarifa_total
-            df.loc[j, "Tarifa_Percentual_%"] = perc * 100
-            df.loc[j, "Tarifa_Fixa_R$"] = custo_fixo
-            df.loc[j, "Tarifa_Total_R$"] = tarifa_total
-            df.loc[j, "Tarifa_Envio"] = frete_item
-            df.loc[j, "Origem_Pacote"] = f"{row['Venda']}-PACOTE"
+        # 💰 calcula tarifa com base no valor total do item (preço × unidades)
+        valor_item_total = preco_unit * unidades_item
+        tarifa_total = round(valor_item_total * perc + (custo_fixo * unidades_item), 2)
 
-            total_tarifas_calc += tarifa_total
-            total_recebido_calc += valor_recebido_item
-            total_frete_calc += frete_item
+        proporcao = preco_unit / soma_precos
+        valor_recebido_item = round(total_recebido * proporcao, 2)
+        frete_item = round(frete_total * (unidades_item / total_unidades), 2)
+
+        # atualiza DataFrame
+        df.loc[j, "Valor_Venda"] = preco_unit
+        df.loc[j, "Valor_Recebido"] = valor_recebido_item
+        df.loc[j, "Tarifa_Venda"] = tarifa_total
+        df.loc[j, "Tarifa_Percentual_%"] = perc * 100
+        df.loc[j, "Tarifa_Fixa_R$"] = custo_fixo * unidades_item
+        df.loc[j, "Tarifa_Total_R$"] = tarifa_total
+        df.loc[j, "Tarifa_Envio"] = frete_item
+        df.loc[j, "Origem_Pacote"] = f"{row['Venda']}-PACOTE"
+        df.loc[j, "Valor_Item_Total"] = valor_item_total
+
+        total_tarifas_calc += tarifa_total
+        total_recebido_calc += valor_recebido_item
+        total_frete_calc += frete_item
 
         # Atualiza a linha principal do pacote
         df.loc[i, "Estado"] = f"{estado} (processado)"
