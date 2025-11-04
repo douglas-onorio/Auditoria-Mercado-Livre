@@ -299,7 +299,9 @@ if uploaded_file:
             tipo_anuncio = subset.loc[j, "Tipo_Anuncio"]
             perc = calcular_percentual(tipo_anuncio)
             custo_fixo = calcular_custo_fixo(preco_unit)
-            tarifa_total = round(preco_unit * perc + custo_fixo, 2)
+        # calcula tarifa com base no valor total do item (preço × unidades)
+            valor_item_total = preco_unit * unidades_item
+            tarifa_total = round(valor_item_total * perc + (custo_fixo * unidades_item), 2)
 
             proporcao = preco_unit / soma_precos
             valor_recebido_item = round(total_recebido * proporcao, 2)
