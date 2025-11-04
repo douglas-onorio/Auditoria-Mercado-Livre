@@ -495,9 +495,6 @@ if uploaded_file:
         df["Lucro_Bruto"] - (df["Custo_Embalagem"] + df["Custo_Fiscal"])
     ).round(2)
 
-    df["Margem_Liquida_%"] = ((df["Lucro_Real"] / df["Valor_Venda"]) * 100).round(2)
-
-
 # === PLANILHA DE CUSTOS ===
 custo_carregado = False
 if not custo_df.empty:
@@ -555,10 +552,10 @@ if "Estado" in df.columns:
 # === EXCLUI CANCELAMENTOS DO CÁLCULO ===
 df_validas = df[df["Status"] != "🟦 Cancelamento Correto"]
 
-    # === RESUMO ===
-    total_vendas = len(df)
-    fora_margem = (df["Status"] == "⚠️ Acima da Margem").sum()
-    cancelamentos = (df["Status"] == "🟦 Cancelamento Correto").sum()
+# === RESUMO ===
+total_vendas = len(df)
+fora_margem = (df["Status"] == "⚠️ Acima da Margem").sum()
+cancelamentos = (df["Status"] == "🟦 Cancelamento Correto").sum()
 
     if custo_carregado:
         lucro_total = df_validas["Lucro_Liquido"].sum()
