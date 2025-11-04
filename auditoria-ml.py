@@ -317,9 +317,9 @@ if uploaded_file and df is not None:
         subset["Preco_Unitario_Item"] = pd.to_numeric(subset[col_preco_unitario], errors="coerce").fillna(0)
         
         # Calcula a soma dos preços unitários dos itens do pacote para proporção
-        soma_precos = subset["Preco_Unitario_Item"].sum() 
+        soma_precos = subset["Preco_Unitario_Item"].sum()  
         # Calcula a soma das unidades para proporção de frete
-        total_unidades = subset[coluna_unidades].sum() or 1 
+        total_unidades = subset[coluna_unidades].sum() or 1  
 
         total_tarifas_calc = total_recebido_calc = total_frete_calc = 0
 
@@ -688,6 +688,123 @@ if uploaded_file and df is not None:
     else:
         st.warning("⚠️ Nenhuma coluna de tipo de anúncio encontrada no arquivo enviado.")
 
+    # === ANÁLISE ANALÍTICA DE MARGEM POR ITEM DE PACOTE ===
+    st.markdown("---")
+    st.subheader("📦 Margem Analítica por Item de Pacote")
+
+    # Filtra apenas linhas pertencentes a pacotes filhos (que têm Origem_Pacote preenchido com ID-PACOTE)
+    df_pacotes_itens = df[df["Origem_Pacote"].astype(str).str.endswith("-PACOTE")].copy()
+
+    if not df_pacotes_itens.empty:
+        analitico = []
+        # Usando .unique() na coluna de Origem_Pacote (e.g., "12345-PACOTE")
+        for pacote_id in df_pacotes_itens["Origem_Pacote"].unique():
+            # Filtra todos os itens que pertencem a este pacote
+            grupo = df_pacotes_itens[df_pacotes_itens["Origem_Pacote"] == pacote_id].copy()
+            if grupo.empty:
+                continue
+
+            # Busca a linha principal (pai) do pacote usando o número da venda
+            venda_pai = pacote_id.replace("-PACOTE", "")
+            linha_pai = df[df["Venda"].astype(str) == venda_pai]
+
+            if linha_pai.empty:
+                continue
+
+            # Captura os valores totais da linha pai para rateio
+            # Usamos .iloc[0] para pegar a primeira (e única) linha do DataFrame 'linha_pai'
+            # Usamos .get() com fallback para 0.0 para maior segurança
+            total_venda = float(linha_pai["Valor_Venda"].iloc[0])
+            total_frete = float(linha_pai["Tarifa_Envio"].iloc[0])
+            total_tarifa = float(linha_pai["Tarifa_Venda"].iloc[0])
+            total_custofiscal = float(linha_pai.get("Custo_Fiscal", pd.Series([0.0])).iloc[0])
+            total_embalagem = float(linha_pai.get("Custo_Embalagem", pd.Series([0.0])).iloc[0])
+
+            # Soma dos Valores de Venda dos itens para calcular a proporção
+            soma_valores_itens = grupo["Valor_Venda"].sum()
+            if soma_valores_itens == 0:
+                continue
+
+            num_itens = len(grupo) # Contagem de itens para ratear custos fixos (embalagem)
+
+            for _, item in grupo.iterrows():
+                # Proporção baseada no valor de venda do item em relação ao total do pacote
+                proporcao = item["Valor_Venda"] / soma_valores_itens
+                
+                # Rateio dos Custos do Pacote Pai com base na Proporção do Valor de Venda
+                tarifa_prop = round(total_tarifa * proporcao, 2)
+                frete_prop = round(total_frete * proporcao, 2)
+                fiscal_prop = round(total_custofiscal * proporcao, 2)
+                
+                # Rateio do Custo de Embalagem (Custo Fixo por Venda) - dividido pelo número de itens no pacote
+                embalagem_prop = round(total_embalagem / num_itens, 2)
+
+                # Custo do Produto: Custo unitário (do Sheets) * Unidades vendidas do item
+                # Usamos a coluna de unidades correta: coluna_unidades
+                custo_prod = float(item.get("Custo_Produto", 0) or 0) * float(item.get(coluna_unidades, 1) or 1)
+                
+                # Lucro Líquido do Item (Usando valores rateados)
+                lucro_liquido = (
+                    item["Valor_Venda"]
+                    - tarifa_prop
+                    - frete_prop
+                    - fiscal_prop
+                    - embalagem_prop
+                    - custo_prod
+                )
+                
+                # Margem
+                margem_item = round((lucro_liquido / item["Valor_Venda"]) * 100, 2) if item["Valor_Venda"] > 0 else 0
+
+                analitico.append({
+                    "Pacote": pacote_id,
+                    "Venda_Pai": venda_pai,
+                    "Produto": item["Produto"],
+                    "SKU": item["SKU"],
+                    "Unidades": item[coluna_unidades],
+                    "Valor_Venda_Item": item["Valor_Venda"],
+                    "Tarifa_Prop": tarifa_prop,
+                    "Frete_Prop": frete_prop,
+                    "Fiscal_Prop": fiscal_prop,
+                    "Embalagem_Prop": embalagem_prop,
+                    "Custo_Produto_Total": round(custo_prod, 2),
+                    "Lucro_Liquido_Item": round(lucro_liquido, 2),
+                    "Margem_Item_%": margem_item
+                })
+
+        df_analitico = pd.DataFrame(analitico)
+
+        # Formatação de colunas monetárias para exibição no Streamlit
+        cols_monetarias = ["Valor_Venda_Item", "Tarifa_Prop", "Frete_Prop", "Fiscal_Prop", "Embalagem_Prop", "Custo_Produto_Total", "Lucro_Liquido_Item"]
+        df_display = df_analitico.copy() # Cópia para aplicar a formatação de exibição
+        
+        for col in cols_monetarias:
+            if col in df_display.columns:
+                 # Usando formatação de texto para exibir no dataframe (padrão BR)
+                 df_display[col] = df_display[col].apply(lambda x: f"R$ {x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+
+        # Adiciona a formatação de %
+        df_display["Margem_Item_%"] = df_display["Margem_Item_%"].apply(lambda x: f"{x:.2f}%".replace(",", "X").replace(".", ",").replace("X", "."))
+
+        st.dataframe(df_display, use_container_width=True, height=400)
+
+        # === DOWNLOADS SEPARADOS ===
+        output_analitico = BytesIO()
+        with pd.ExcelWriter(output_analitico, engine="xlsxwriter") as writer:
+            # Cria um DataFrame limpo para o Excel (sem a formatação de R$)
+            df_analitico.to_excel(writer, index=False, sheet_name="Margem_Itens_Pacotes")
+        output_analitico.seek(0)
+
+        st.download_button(
+            label="⬇️ Exportar Análise Analítica (Somente Pacotes)",
+            data=output_analitico,
+            file_name=f"Margem_Itens_Pacotes_{datetime.now().strftime('%d-%m-%Y_%H-%M-%S')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+    else:
+        st.info("Nenhum pacote com múltiplos produtos encontrado para análise detalhada.")
+        
     # === ALERTA DE PRODUTO ===
     st.markdown("---")
     st.subheader("🚨 Produtos Fora da Margem")
@@ -777,32 +894,28 @@ if uploaded_file and df is not None:
     # === EXPORTAÇÃO FINAL (colunas principais e financeiras) ===
     colunas_principais = [
         "Venda", "Data", "Produto", "SKU", "Tipo_Anuncio",
-        "Unidades", "Valor_Venda", "Valor_Recebido",
-        "Tarifa_Venda", "Tarifa_Percentual_%", "Tarifa_Fixa_R$", "Tarifa_Total_R$",
-        "Tarifa_Envio", "Cancelamentos",
-        "Custo_Embalagem", "Custo_Fiscal", "Receita_Envio",
-        "Lucro_Bruto", "Lucro_Real", "Margem_Liquida_%",
-        "Custo_Produto", "Custo_Produto_Total",
-        "Lucro_Liquido", "Margem_Final_%", "Markup_%",
-        "Origem_Pacote", "Status"
+        coluna_unidades, "Valor_Venda", "Valor_Recebido",
+        "Tarifa_Venda", "Tarifa_Envio", "Cancelamentos",
+        "Custo_Fiscal", "Custo_Embalagem",
+        "Custo_Produto_Total", "Lucro_Real", "Lucro_Liquido",
+        "Margem_Liquida_%", "Margem_Final_%", "Markup_%",
+        "Status", "Origem_Pacote", "Tarifa_Validada_ML"
     ]
 
-    # Mantém apenas as colunas que realmente existem
-    colunas_exportar = [c for c in colunas_principais if c in df.columns]
-    df_export = df[colunas_exportar].copy()
-
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-        df_export.to_excel(writer, index=False, sheet_name="Auditoria", freeze_panes=(1, 0))
-    output.seek(0)
+    output_final = BytesIO()
+    with pd.ExcelWriter(output_final, engine="xlsxwriter") as writer:
+        df_export = df[[c for c in colunas_principais if c in df.columns]].copy()
+        
+        # Renomeia coluna de unidades para o export final
+        if coluna_unidades != "Unidades":
+             df_export.rename(columns={coluna_unidades: "Unidades"}, inplace=True)
+             
+        df_export.to_excel(writer, index=False, sheet_name="Auditoria_Completa")
+    output_final.seek(0)
 
     st.download_button(
-        label="⬇️ Baixar Relatório XLSX (colunas principais e financeiras)",
-        data=output,
-        file_name=f"Auditoria_ML_{datetime.now().strftime('%d-%m-%Y_%H-%M-%S')}.xlsx",
+        label="⬇️ Exportar Auditoria Completa (Excel)",
+        data=output_final,
+        file_name=f"Auditoria_Vendas_ML_Completa_{datetime.now().strftime('%d-%m-%Y_%H-%M-%S')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
-
-# === CASO NENHUM ARQUIVO TENHA SIDO ENVIADO ===
-else: # Se uploaded_file for False ou df for None
-    st.info("Envie o arquivo Excel de vendas para iniciar a análise.")
