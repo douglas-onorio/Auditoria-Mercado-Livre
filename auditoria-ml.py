@@ -326,16 +326,20 @@ if uploaded_file:
         total_recebido_calc += valor_recebido_item
         total_frete_calc += frete_item
 
-        # Atualiza a linha principal do pacote
-        df.loc[i, "Estado"] = f"{estado} (processado)"
-        df.loc[i, "Tarifa_Venda"] = round(total_tarifas_calc, 2)
-        df.loc[i, "Tarifa_Envio"] = round(frete_total, 2)
-        df.loc[i, "Valor_Recebido"] = total_recebido
-        df.loc[i, "Origem_Pacote"] = "PACOTE"
-        df.loc[i, "Lucro_Real"] = 0
-        df.loc[i, "Lucro_Liquido"] = 0
-        df.loc[i, "Margem_Final_%"] = 0
-        df.loc[i, "Markup_%"] = 0
+                # Atualiza a linha principal do pacote somente se for realmente um pacote válido
+        if "Pacote de" in estado:
+            df.loc[i, "Estado"] = f"{estado} (processado)"
+            df.loc[i, "Tarifa_Venda"] = round(total_tarifas_calc, 2)
+            df.loc[i, "Tarifa_Envio"] = round(frete_total, 2)
+            df.loc[i, "Valor_Recebido"] = total_recebido
+            df.loc[i, "Origem_Pacote"] = "PACOTE"
+            df.loc[i, "Lucro_Real"] = 0
+            df.loc[i, "Lucro_Liquido"] = 0
+            df.loc[i, "Margem_Final_%"] = 0
+            df.loc[i, "Markup_%"] = 0
+        else:
+            # Linhas fora do pacote ou canceladas não devem herdar marcação "PACOTE"
+            df.loc[i, "Origem_Pacote"] = None
 
     # === VALIDAÇÃO DOS PACOTES ===
     df["Tarifa_Validada_ML"] = ""
