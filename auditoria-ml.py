@@ -575,171 +575,170 @@ col4.metric("Lucro Total (R$)", f"{lucro_total:,.2f}")
 col5.metric("Margem Média (%)", f"{margem_media:.2f}%")
 col6.metric("🔻 Prejuízo Total (R$)", f"{prejuizo_total:,.2f}")
 
-            # === ANÁLISE DE TIPOS DE ANÚNCIO ===
-    st.markdown("---")
-    st.subheader("📊 Análise por Tipo de Anúncio (Clássico x Premium)")
+# === ANÁLISE DE TIPOS DE ANÚNCIO ===
+st.markdown("---")
+st.subheader("📊 Análise por Tipo de Anúncio (Clássico x Premium)")
 
-    if "Tipo_Anuncio" in df.columns:
-        # Corrige campos vazios e preenche pacotes
-        df["Tipo_Anuncio"] = (
-            df["Tipo_Anuncio"]
-            .astype(str)
-            .str.strip()
-            .replace(["nan", "None", ""], "Agrupado (Pacotes)")
-        )
-
-        tipo_counts = df["Tipo_Anuncio"].value_counts(dropna=False).reset_index()
-        tipo_counts.columns = ["Tipo de Anúncio", "Quantidade"]
-        tipo_counts["% Participação"] = (
-            tipo_counts["Quantidade"] / tipo_counts["Quantidade"].sum() * 100
-        ).round(2)
-
-        col1, col2 = st.columns(2)
-        col1.metric(
-            "Anúncios Clássicos",
-            int(
-                tipo_counts.loc[
-                    tipo_counts["Tipo de Anúncio"].str.contains("Clássico", case=False),
-                    "Quantidade"
-                ].sum()
-            ),
-        )
-        col2.metric(
-            "Anúncios Premium",
-            int(
-                tipo_counts.loc[
-                    tipo_counts["Tipo de Anúncio"].str.contains("Premium", case=False),
-                    "Quantidade"
-                ].sum()
-            ),
-        )
-
-        st.dataframe(tipo_counts, use_container_width=True)
-
-        # Exporta o resumo para Excel
-        output_tipos = BytesIO()
-        with pd.ExcelWriter(output_tipos, engine="xlsxwriter") as writer:
-            tipo_counts.to_excel(writer, index=False, sheet_name="Tipos_Anuncio")
-        output_tipos.seek(0)
-        st.download_button(
-            label="⬇️ Exportar Resumo de Tipos (Excel)",
-            data=output_tipos,
-            file_name=f"Resumo_Tipos_Anuncio_{datetime.now().strftime('%d-%m-%Y_%H-%M-%S')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
-    else:
-        st.warning("⚠️ Nenhuma coluna de tipo de anúncio encontrada no arquivo enviado.")
-
-
-
-    # === ALERTA DE PRODUTO ===
-    st.markdown("---")
-    st.subheader("🚨 Produtos Fora da Margem")
-    df_alerta = df[df["Status"] == "⚠️ Acima da Margem"]
-    if not df_alerta.empty:
-        produto_critico = (
-            df_alerta.groupby(["SKU", "Anuncio", "Produto"])
-            .size().reset_index(name="Ocorrências")
-            .sort_values("Ocorrências", ascending=False).head(1)
-        )
-        sku_critico = produto_critico.iloc[0]["SKU"]
-        produto_nome = produto_critico.iloc[0]["Produto"]
-        anuncio_critico = produto_critico.iloc[0]["Anuncio"]
-        ocorrencias = produto_critico.iloc[0]["Ocorrências"]
-
-        st.warning(
-            f"🚨 Produto com mais vendas fora da margem: **{produto_nome}** "
-            f"(SKU: {sku_critico} | Anúncio: {anuncio_critico} | {ocorrencias} ocorrências)"
-        )
-
-        exemplo = df_alerta[df_alerta["SKU"] == sku_critico].head(1)
-        if not exemplo.empty:
-            st.markdown("**🧾 Exemplo de venda afetada:**")
-            st.write(exemplo[[
-                "Venda", "Data", "Valor_Venda", "Valor_Recebido", "Tarifa_Venda",
-                "Tarifa_Envio", "Lucro_Real", "%Diferença"
-            ]])
-
-        vendas_afetadas = df_alerta[df_alerta["SKU"] == sku_critico]
-        st.markdown("**📄 Todas as vendas afetadas por esse produto:**")
-        st.dataframe(vendas_afetadas, use_container_width=True)
-
-        output_alerta = BytesIO()
-        with pd.ExcelWriter(output_alerta, engine="xlsxwriter") as writer:
-            vendas_afetadas.to_excel(writer, index=False, sheet_name="Fora_da_Margem")
-        output_alerta.seek(0)
-        st.download_button(
-            label="⬇️ Exportar Vendas Afetadas (Excel)",
-            data=output_alerta,
-            file_name=f"Vendas_Fora_da_Margem_{sku_critico}_{datetime.now().strftime('%d-%m-%Y_%H-%M-%S')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
-    else:
-        st.success("✅ Nenhum produto com vendas fora da margem no período.")
-
-    # === CONSULTA SKU ===
-    st.markdown("---")
-    st.subheader("🔎 Conferência Manual de SKU")
-    sku_detalhe = st.text_input("Digite o SKU para detalhar:")
-    if sku_detalhe:
-        filtro = df[df["SKU"].astype(str) == sku_detalhe.strip()]
-        if filtro.empty:
-            st.warning("Nenhum registro encontrado para este SKU.")
-        else:
-            st.write(filtro[[
-                "Produto", "Valor_Venda", "Tarifa_Venda", "Tarifa_Envio",
-                "Custo_Embalagem", "Custo_Fiscal", "Lucro_Bruto", "Lucro_Real",
-                "Unidades", "Margem_Liquida_%"
-            ]].dropna(axis=1, how="all"))
-
-    # === VISUALIZAÇÃO DOS DADOS ANALISADOS ===
-    st.markdown("---")
-    st.subheader("📋 Itens Avaliados")
-
-    st.dataframe(
-        df[
-            [
-                "Venda", "Data", "Produto", "SKU", "Tipo_Anuncio",
-                coluna_unidades, "Valor_Venda", "Valor_Recebido",
-                "Tarifa_Venda", "Tarifa_Percentual_%", "Tarifa_Fixa_R$", "Tarifa_Total_R$",
-                "Tarifa_Envio", "Cancelamentos",
-                "Lucro_Real", "Margem_Liquida_%", "Status", "Origem_Pacote"
-            ]
-            if "SKU" in df.columns
-            else df.columns
-        ],
-        use_container_width=True,
-        height=450
+if "Tipo_Anuncio" in df.columns:
+    # Corrige campos vazios e preenche pacotes
+    df["Tipo_Anuncio"] = (
+        df["Tipo_Anuncio"]
+        .astype(str)
+        .str.strip()
+        .replace(["nan", "None", ""], "Agrupado (Pacotes)")
     )
 
-            # === EXPORTAÇÃO FINAL (colunas principais e financeiras) ===
-    colunas_principais = [
-        "Venda", "Data", "Produto", "SKU", "Tipo_Anuncio",
-        "Unidades", "Valor_Venda", "Valor_Recebido",
-        "Tarifa_Venda", "Tarifa_Percentual_%", "Tarifa_Fixa_R$", "Tarifa_Total_R$",
-        "Tarifa_Envio", "Cancelamentos",
-        "Custo_Embalagem", "Custo_Fiscal", "Receita_Envio",
-        "Lucro_Bruto", "Lucro_Real", "Margem_Liquida_%",
-        "Custo_Produto", "Custo_Produto_Total",
-        "Lucro_Liquido", "Margem_Final_%", "Markup_%",
-        "Origem_Pacote", "Status"
-    ]
+    tipo_counts = df["Tipo_Anuncio"].value_counts(dropna=False).reset_index()
+    tipo_counts.columns = ["Tipo de Anúncio", "Quantidade"]
+    tipo_counts["% Participação"] = (
+        tipo_counts["Quantidade"] / tipo_counts["Quantidade"].sum() * 100
+    ).round(2)
 
-    # Mantém apenas as colunas que realmente existem
-    colunas_exportar = [c for c in colunas_principais if c in df.columns]
-    df_export = df[colunas_exportar].copy()
+    col1, col2 = st.columns(2)
+    col1.metric(
+        "Anúncios Clássicos",
+        int(
+            tipo_counts.loc[
+                tipo_counts["Tipo de Anúncio"].str.contains("Clássico", case=False),
+                "Quantidade"
+            ].sum()
+        ),
+    )
+    col2.metric(
+        "Anúncios Premium",
+        int(
+            tipo_counts.loc[
+                tipo_counts["Tipo de Anúncio"].str.contains("Premium", case=False),
+                "Quantidade"
+            ].sum()
+        ),
+    )
 
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-        df_export.to_excel(writer, index=False, sheet_name="Auditoria", freeze_panes=(1, 0))
-    output.seek(0)
+    st.dataframe(tipo_counts, use_container_width=True)
 
+    # Exporta o resumo para Excel
+    output_tipos = BytesIO()
+    with pd.ExcelWriter(output_tipos, engine="xlsxwriter") as writer:
+        tipo_counts.to_excel(writer, index=False, sheet_name="Tipos_Anuncio")
+    output_tipos.seek(0)
     st.download_button(
-        label="⬇️ Baixar Relatório XLSX (colunas principais e financeiras)",
-        data=output,
-        file_name=f"Auditoria_ML_{datetime.now().strftime('%d-%m-%Y_%H-%M-%S')}.xlsx",
+        label="⬇️ Exportar Resumo de Tipos (Excel)",
+        data=output_tipos,
+        file_name=f"Resumo_Tipos_Anuncio_{datetime.now().strftime('%d-%m-%Y_%H-%M-%S')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
+else:
+    st.warning("⚠️ Nenhuma coluna de tipo de anúncio encontrada no arquivo enviado.")
+
+# === ALERTA DE PRODUTO ===
+st.markdown("---")
+st.subheader("🚨 Produtos Fora da Margem")
+df_alerta = df[df["Status"] == "⚠️ Acima da Margem"]
+if not df_alerta.empty:
+    produto_critico = (
+        df_alerta.groupby(["SKU", "Anuncio", "Produto"])
+        .size().reset_index(name="Ocorrências")
+        .sort_values("Ocorrências", ascending=False).head(1)
+    )
+    sku_critico = produto_critico.iloc[0]["SKU"]
+    produto_nome = produto_critico.iloc[0]["Produto"]
+    anuncio_critico = produto_critico.iloc[0]["Anuncio"]
+    ocorrencias = produto_critico.iloc[0]["Ocorrências"]
+
+    st.warning(
+        f"🚨 Produto com mais vendas fora da margem: **{produto_nome}** "
+        f"(SKU: {sku_critico} | Anúncio: {anuncio_critico} | {ocorrencias} ocorrências)"
+    )
+
+    exemplo = df_alerta[df_alerta["SKU"] == sku_critico].head(1)
+    if not exemplo.empty:
+        st.markdown("**🧾 Exemplo de venda afetada:**")
+        st.write(exemplo[[
+            "Venda", "Data", "Valor_Venda", "Valor_Recebido", "Tarifa_Venda",
+            "Tarifa_Envio", "Lucro_Real", "%Diferença"
+        ]])
+
+    vendas_afetadas = df_alerta[df_alerta["SKU"] == sku_critico]
+    st.markdown("**📄 Todas as vendas afetadas por esse produto:**")
+    st.dataframe(vendas_afetadas, use_container_width=True)
+
+    output_alerta = BytesIO()
+    with pd.ExcelWriter(output_alerta, engine="xlsxwriter") as writer:
+        vendas_afetadas.to_excel(writer, index=False, sheet_name="Fora_da_Margem")
+    output_alerta.seek(0)
+    st.download_button(
+        label="⬇️ Exportar Vendas Afetadas (Excel)",
+        data=output_alerta,
+        file_name=f"Vendas_Fora_da_Margem_{sku_critico}_{datetime.now().strftime('%d-%m-%Y_%H-%M-%S')}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+else:
+    st.success("✅ Nenhum produto com vendas fora da margem no período.")
+
+# === CONSULTA SKU ===
+st.markdown("---")
+st.subheader("🔎 Conferência Manual de SKU")
+sku_detalhe = st.text_input("Digite o SKU para detalhar:")
+if sku_detalhe:
+    filtro = df[df["SKU"].astype(str) == sku_detalhe.strip()]
+    if filtro.empty:
+        st.warning("Nenhum registro encontrado para este SKU.")
+    else:
+        st.write(filtro[[
+            "Produto", "Valor_Venda", "Tarifa_Venda", "Tarifa_Envio",
+            "Custo_Embalagem", "Custo_Fiscal", "Lucro_Bruto", "Lucro_Real",
+            "Unidades", "Margem_Liquida_%"
+        ]].dropna(axis=1, how="all"))
+
+# === VISUALIZAÇÃO DOS DADOS ANALISADOS ===
+st.markdown("---")
+st.subheader("📋 Itens Avaliados")
+
+st.dataframe(
+    df[
+        [
+            "Venda", "Data", "Produto", "SKU", "Tipo_Anuncio",
+            coluna_unidades, "Valor_Venda", "Valor_Recebido",
+            "Tarifa_Venda", "Tarifa_Percentual_%", "Tarifa_Fixa_R$", "Tarifa_Total_R$",
+            "Tarifa_Envio", "Cancelamentos",
+            "Lucro_Real", "Margem_Liquida_%", "Status", "Origem_Pacote"
+        ]
+        if "SKU" in df.columns
+        else df.columns
+    ],
+    use_container_width=True,
+    height=450
+)
+
+# === EXPORTAÇÃO FINAL (colunas principais e financeiras) ===
+colunas_principais = [
+    "Venda", "Data", "Produto", "SKU", "Tipo_Anuncio",
+    "Unidades", "Valor_Venda", "Valor_Recebido",
+    "Tarifa_Venda", "Tarifa_Percentual_%", "Tarifa_Fixa_R$", "Tarifa_Total_R$",
+    "Tarifa_Envio", "Cancelamentos",
+    "Custo_Embalagem", "Custo_Fiscal", "Receita_Envio",
+    "Lucro_Bruto", "Lucro_Real", "Margem_Liquida_%",
+    "Custo_Produto", "Custo_Produto_Total",
+    "Lucro_Liquido", "Margem_Final_%", "Markup_%",
+    "Origem_Pacote", "Status"
+]
+
+# Mantém apenas as colunas que realmente existem
+colunas_exportar = [c for c in colunas_principais if c in df.columns]
+df_export = df[colunas_exportar].copy()
+
+output = BytesIO()
+with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+    df_export.to_excel(writer, index=False, sheet_name="Auditoria", freeze_panes=(1, 0))
+output.seek(0)
+
+st.download_button(
+    label="⬇️ Baixar Relatório XLSX (colunas principais e financeiras)",
+    data=output,
+    file_name=f"Auditoria_ML_{datetime.now().strftime('%d-%m-%Y_%H-%M-%S')}.xlsx",
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+)
 
 else:
     st.info("Envie o arquivo Excel de vendas para iniciar a análise.")
+
