@@ -707,7 +707,9 @@ if df is None or "Origem_Pacote" not in df.columns:
     st.info("Nenhum pacote com múltiplos produtos encontrado para análise detalhada.")
 else:
     try:
-        mask_filhos = df["Origem_Pacote"].apply(lambda x: isinstance(x, str) and "-PACOTE" in x)
+        mask_filhos = df["Origem_Pacote"].apply(
+            lambda x: isinstance(x, str) and "PACOTE" in x.upper() and not x.strip().upper().startswith("PACOTE")
+        )
         df_pacotes_itens = df[mask_filhos].copy()
 
         if df_pacotes_itens.empty:
