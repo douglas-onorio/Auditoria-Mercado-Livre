@@ -7,6 +7,19 @@ import re
 import os
 from pathlib import Path
 import tempfile
+import numpy as np # Adicionado: necessário para usar np.nan no cálculo das margens
+
+# === VARIÁVEIS DE ESTADO E INICIALIZAÇÃO PARA EVITAR NAMEERROR ===
+# Inicializando as variáveis que seriam usadas no bloco de métricas,
+# garantindo que elas existam mesmo sem um arquivo carregado.
+total_vendas = 0
+fora_margem = 0
+cancelamentos = 0
+lucro_total = 0.0
+margem_media = 0.0
+prejuizo_total = 0.0
+df = None # Inicializa o DataFrame principal como None
+coluna_unidades = "Unidades" # Inicializa a coluna de unidades
 
 # === CRIAÇÃO SEGURA DO DIRETÓRIO ===
 try:
@@ -39,9 +52,9 @@ Vendas com diferença **acima de {margem_limite}%** são classificadas como **an
 # === GESTÃO DE CUSTOS (INTEGRAÇÃO GOOGLE SHEETS) ===
 import gspread
 from google.oauth2.service_account import Credentials
-import pandas as pd
-from datetime import datetime
-import streamlit as st
+# import pandas as pd # Já importado
+# from datetime import datetime # Já importado
+# import streamlit as st # Já importado
 import json
 
 st.subheader("💰 Custos de Produtos (Google Sheets)")
@@ -54,6 +67,8 @@ try:
     ]
 
     if "gcp_service_account" not in st.secrets:
+        # Se estiver rodando localmente sem secrets, pode ser um problema.
+        # Mas mantemos a lógica original de levantar a exceção.
         raise ValueError("❌ Bloco [gcp_service_account] não encontrado em st.secrets.")
 
     info = dict(st.secrets["gcp_service_account"])
@@ -160,6 +175,7 @@ st.subheader("💰 Custos de Produtos (Google Sheets)")
 
 custo_df = carregar_custos_google()
 if not custo_df.empty:
+    # A limpeza aqui foi mantida, mas a junção de dados será feita mais tarde.
     custo_df["SKU"] = custo_df["SKU"].astype(str).str.replace(r"[^\d]", "", regex=True)
 else:
     st.warning("⚠️ Nenhum custo encontrado. Você pode adicionar manualmente abaixo.")
@@ -186,9 +202,13 @@ if uploaded_file:
         st.success(f"✅ Arquivo {uploaded_file.name} carregado com sucesso!")
 
     # --- LEITURA COMPLETA ---
-    df = pd.read_excel(uploaded_file, sheet_name="Vendas BR", header=5)
-    df.columns = df.columns.str.strip().str.replace(r"\s+", " ", regex=True)
-    st.dataframe(df.head(20), use_container_width=True)
+    try:
+        df = pd.read_excel(uploaded_file, sheet_name="Vendas BR", header=5)
+        df.columns = df.columns.str.strip().str.replace(r"\s+", " ", regex=True)
+        st.dataframe(df.head(20), use_container_width=True)
+    except Exception as e:
+        st.error(f"Erro ao ler o arquivo: {e}. Verifique se a aba 'Vendas BR' e o cabeçalho na linha 6 estão corretos.")
+        df = None # Define df como None se houver erro
 
 # Botão para limpar o arquivo e forçar reload
 if st.button("🗑️ Remover arquivo carregado"):
@@ -196,11 +216,10 @@ if st.button("🗑️ Remover arquivo carregado"):
     st.cache_data.clear()
     st.rerun()
 
-if uploaded_file:
-    # --- LEITURA COMPLETA ---
-    df = pd.read_excel(uploaded_file, sheet_name="Vendas BR", header=5)
-    df.columns = df.columns.str.strip().str.replace(r"\s+", " ", regex=True)
-                        
+# Inicia o processamento principal se o arquivo foi carregado com sucesso
+if uploaded_file and df is not None:
+    # A segunda leitura completa (existente no original) foi removida aqui para evitar redundância.
+
     # === COLUNA DE UNIDADES ===
     possiveis_colunas_unidades = ["Unidades", "Quantidade", "Qtde", "Qtd"]
     coluna_unidades = next((c for c in possiveis_colunas_unidades if c in df.columns), None)
@@ -218,7 +237,7 @@ if uploaded_file:
         df["Unidades"] = 1
         coluna_unidades = "Unidades"
 
-    st.caption(f"🧩 Coluna de unidades detectada e normalizada: **{coluna_unidades}**") 
+    st.caption(f"🧩 Coluna de unidades detectada e normalizada: **{coluna_unidades}**")
 
     # --- MAPEAMENTO PRINCIPAL ---
     col_map = {
@@ -240,8 +259,8 @@ if uploaded_file:
     # Renomeia apenas o que consta no mapeamento
     df.rename(columns={c: col_map[c] for c in col_map if c in df.columns}, inplace=True)
 
-        # === REDISTRIBUI PACOTES (COM DETALHAMENTO DE TARIFAS E FRETE POR UNIDADE) ===
-    import re
+    # === REDISTRIBUI PACOTES (COM DETALHAMENTO DE TARIFAS E FRETE POR UNIDADE) ===
+    # import re # Já importado
 
     def calcular_custo_fixo(preco_unit):
         if preco_unit < 12.5:
@@ -264,7 +283,7 @@ if uploaded_file:
         return 0.12
 
     # Garante que todas as colunas necessárias existam
-    for col in ["Tarifa_Percentual_%", "Tarifa_Fixa_R$", "Tarifa_Total_R$", "Origem_Pacote", "Tarifa_Envio"]:
+    for col in ["Tarifa_Percentual_%", "Tarifa_Fixa_R$", "Tarifa_Total_R$", "Origem_Pacote", "Tarifa_Envio", "Valor_Item_Total"]:
         if col not in df.columns:
             df[col] = None
 
@@ -273,9 +292,16 @@ if uploaded_file:
         estado = str(row.get("Estado", ""))
         match = re.search(r"Pacote de (\d+) produtos", estado, flags=re.IGNORECASE)
         if not match:
+            df.loc[i, "Origem_Pacote"] = None # Linhas fora do pacote
             continue
 
         qtd = int(match.group(1))
+
+        # Verifica se o subset está dentro dos limites do DataFrame
+        if i + 1 + qtd > len(df):
+             st.warning(f"⚠️ Aviso: Pacote da venda {row.get('Venda', 'N/A')} na linha {i+6} está incompleto no final do arquivo e foi ignorado.")
+             continue
+
         subset = df.iloc[i + 1 : i + 1 + qtd].copy()
         if subset.empty:
             continue
@@ -289,76 +315,91 @@ if uploaded_file:
         # Define a coluna de preço unitário
         col_preco_unitario = "Preco_Unitario" if "Preco_Unitario" in subset.columns else "Preço unitário de venda do anúncio (BRL)"
         subset["Preco_Unitario_Item"] = pd.to_numeric(subset[col_preco_unitario], errors="coerce").fillna(0)
-        soma_precos = subset["Preco_Unitario_Item"].sum() or qtd
-        total_unidades = subset[coluna_unidades].sum() or 1
+        
+        # Calcula a soma dos preços unitários dos itens do pacote para proporção
+        soma_precos = subset["Preco_Unitario_Item"].sum() 
+        # Calcula a soma das unidades para proporção de frete
+        total_unidades = subset[coluna_unidades].sum() or 1 
 
         total_tarifas_calc = total_recebido_calc = total_frete_calc = 0
 
-    for j in subset.index:
-        preco_unit = float(subset.loc[j, "Preco_Unitario_Item"] or 0)
-        tipo_anuncio = subset.loc[j, "Tipo_Anuncio"]
-        perc = calcular_percentual(tipo_anuncio)
-        custo_fixo = calcular_custo_fixo(preco_unit)
+        # Loop corrigido: estava indentado incorretamente no código original
+        for j in subset.index:
+            preco_unit = float(subset.loc[j, "Preco_Unitario_Item"] or 0)
+            tipo_anuncio = subset.loc[j, "Tipo_Anuncio"]
+            perc = calcular_percentual(tipo_anuncio)
+            custo_fixo = calcular_custo_fixo(preco_unit)
 
-        # 🧮 quantidade comprada do item
-        unidades_item = subset.loc[j, coluna_unidades]
+            # 🧮 quantidade comprada do item
+            unidades_item = subset.loc[j, coluna_unidades]
 
-        # 💰 calcula tarifa com base no valor total do item (preço × unidades)
-        valor_item_total = preco_unit * unidades_item
-        tarifa_total = round(valor_item_total * perc + (custo_fixo * unidades_item), 2)
+            # 💰 calcula tarifa com base no valor total do item (preço unitário × unidades)
+            valor_item_total = preco_unit * unidades_item
+            tarifa_total = round(valor_item_total * perc + (custo_fixo * unidades_item), 2)
 
-        proporcao = preco_unit / soma_precos
-        valor_recebido_item = round(total_recebido * proporcao, 2)
-        frete_item = round(frete_total * (unidades_item / total_unidades), 2)
+            # Proporção da receita recebida (Valor_Recebido) baseada no preço unitário
+            proporcao_venda = (preco_unit / soma_precos) if soma_precos else 0
+            valor_recebido_item = round(total_recebido * proporcao_venda, 2)
+            
+            # Distribui frete baseado na proporção de unidades do item
+            proporcao_unidades = unidades_item / total_unidades if total_unidades else 0
+            frete_item = round(frete_total * proporcao_unidades, 2)
 
-        # atualiza DataFrame
-        df.loc[j, "Valor_Venda"] = preco_unit
-        df.loc[j, "Valor_Recebido"] = valor_recebido_item
-        df.loc[j, "Tarifa_Venda"] = tarifa_total
-        df.loc[j, "Tarifa_Percentual_%"] = perc * 100
-        df.loc[j, "Tarifa_Fixa_R$"] = custo_fixo * unidades_item
-        df.loc[j, "Tarifa_Total_R$"] = tarifa_total
-        df.loc[j, "Tarifa_Envio"] = frete_item
-        df.loc[j, "Origem_Pacote"] = f"{row['Venda']}-PACOTE"
-        df.loc[j, "Valor_Item_Total"] = valor_item_total
+            # atualiza DataFrame na linha do item (j)
+            df.loc[j, "Valor_Venda"] = valor_item_total # Valor total do item (Preço unitário * Unidades)
+            df.loc[j, "Valor_Recebido"] = valor_recebido_item
+            df.loc[j, "Tarifa_Venda"] = tarifa_total
+            df.loc[j, "Tarifa_Percentual_%"] = perc * 100
+            df.loc[j, "Tarifa_Fixa_R$"] = custo_fixo * unidades_item
+            df.loc[j, "Tarifa_Total_R$"] = tarifa_total
+            df.loc[j, "Tarifa_Envio"] = frete_item
+            df.loc[j, "Origem_Pacote"] = f"{row['Venda']}-PACOTE"
+            df.loc[j, "Valor_Item_Total"] = valor_item_total
 
-        total_tarifas_calc += tarifa_total
-        total_recebido_calc += valor_recebido_item
-        total_frete_calc += frete_item
+            total_tarifas_calc += tarifa_total
+            total_recebido_calc += valor_recebido_item
+            total_frete_calc += frete_item
 
-                # Atualiza a linha principal do pacote somente se for realmente um pacote válido
-        if "Pacote de" in estado:
-            df.loc[i, "Estado"] = f"{estado} (processado)"
-            df.loc[i, "Tarifa_Venda"] = round(total_tarifas_calc, 2)
-            df.loc[i, "Tarifa_Envio"] = round(frete_total, 2)
-            df.loc[i, "Valor_Recebido"] = total_recebido
-            df.loc[i, "Origem_Pacote"] = "PACOTE"
-            df.loc[i, "Lucro_Real"] = 0
-            df.loc[i, "Lucro_Liquido"] = 0
-            df.loc[i, "Margem_Final_%"] = 0
-            df.loc[i, "Markup_%"] = 0
-        else:
-            # Linhas fora do pacote ou canceladas não devem herdar marcação "PACOTE"
-            df.loc[i, "Origem_Pacote"] = None
+        # Atualiza a linha principal do pacote (i)
+        df.loc[i, "Estado"] = f"{estado} (processado)"
+        df.loc[i, "Tarifa_Venda"] = round(total_tarifas_calc, 2)
+        df.loc[i, "Tarifa_Envio"] = round(frete_total, 2)
+        df.loc[i, "Valor_Recebido"] = total_recebido
+        df.loc[i, "Origem_Pacote"] = "PACOTE"
+        # Zera métricas de lucro para a linha mãe
+        df.loc[i, "Lucro_Real"] = 0
+        df.loc[i, "Lucro_Liquido"] = 0
+        df.loc[i, "Margem_Final_%"] = 0
+        df.loc[i, "Markup_%"] = 0
 
     # === VALIDAÇÃO DOS PACOTES ===
     df["Tarifa_Validada_ML"] = ""
     mask_pacotes = df["Origem_Pacote"].notna()
     for pacote in df.loc[mask_pacotes, "Origem_Pacote"].unique():
-        if not isinstance(pacote, str) or not pacote.endswith("-PACOTE"):
+        if not isinstance(pacote, str):
             continue
-        filhos = df[df["Origem_Pacote"] == pacote]
-        pai = df[df["Venda"].astype(str).eq(pacote.split("-")[0])]
-        soma_filhas = filhos["Tarifa_Venda"].sum() + filhos["Tarifa_Envio"].sum()
-        tarifa_pai = pai["Tarifa_Venda"].sum() + pai["Tarifa_Envio"].sum()
-        df.loc[df["Origem_Pacote"] == pacote, "Tarifa_Validada_ML"] = "✔️" if abs(soma_filhas - tarifa_pai) < 1 else "❌"
+            
+        # Garante que estamos pegando apenas os pacotes filhos
+        if pacote.endswith("-PACOTE"):
+            filhos = df[df["Origem_Pacote"] == pacote]
+            
+            # Tenta encontrar a linha pai (Venda original)
+            venda_pai_id = pacote.split("-")[0]
+            pai = df[df["Venda"].astype(str).eq(venda_pai_id)]
+            
+            if not pai.empty:
+                soma_filhas = filhos["Tarifa_Venda"].sum() + filhos["Tarifa_Envio"].sum()
+                tarifa_pai = pai["Tarifa_Venda"].sum() + pai["Tarifa_Envio"].sum()
+                
+                # Aplica o resultado da validação nas linhas filhas
+                df.loc[df["Origem_Pacote"] == pacote, "Tarifa_Validada_ML"] = "✔️" if abs(soma_filhas - tarifa_pai) < 1 else "❌"
 
     # === CONVERSÕES ===
     for c in ["Valor_Venda", "Valor_Recebido", "Tarifa_Venda", "Tarifa_Envio", "Cancelamentos", "Preco_Unitario"]:
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0).abs()
 
-         # === AJUSTE SKU ===
+    # === AJUSTE SKU ===
     def limpar_sku(valor):
         if pd.isna(valor):
             return ""
@@ -381,6 +422,11 @@ if uploaded_file:
             continue
 
         qtd = int(match.group(1))
+
+        # Garante que o subset esteja dentro dos limites novamente
+        if i + 1 + qtd > len(df):
+            continue
+
         subset = df.iloc[i + 1 : i + 1 + qtd].copy()
         if subset.empty:
             continue
@@ -469,14 +515,17 @@ if uploaded_file:
     df["Verificacao_Cancelamento"] = df["Valor_Venda"] - (df["Tarifa_Venda"] + df["Tarifa_Envio"] + df["Cancelamentos"])
     df["Cancelamento_Correto"] = (df["Valor_Recebido"] == 0) & (abs(df["Verificacao_Cancelamento"]) <= 0.1)
     df["Diferença_R$"] = df["Valor_Venda"] - df["Valor_Recebido"]
-    df["%Diferença"] = ((1 - (df["Valor_Recebido"] / df["Valor_Venda"])) * 100).round(2)
+    
+    # Adiciona tratamento de divisão por zero
+    df["%Diferença"] = ((1 - (df["Valor_Recebido"] / df["Valor_Venda"].replace(0, np.nan))) * 100).round(2).fillna(0)
+    
     df["Status"] = df.apply(
         lambda x: "🟦 Cancelamento Correto" if x["Cancelamento_Correto"]
         else "⚠️ Acima da Margem" if x["%Diferença"] > margem_limite
         else "✅ Normal", axis=1
     )
 
-       # === FINANCEIRO ===
+    # === FINANCEIRO ===
     df["Custo_Embalagem"] = custo_embalagem
     df["Custo_Fiscal"] = (df["Valor_Venda"] * (custo_fiscal / 100)).round(2)
 
@@ -494,9 +543,8 @@ if uploaded_file:
     df["Lucro_Real"] = (
         df["Lucro_Bruto"] - (df["Custo_Embalagem"] + df["Custo_Fiscal"])
     ).round(2)
-    
-if uploaded_file:
-    # === PLANILHA DE CUSTOS ===
+
+    # === PLANILHA DE CUSTOS (SEGUNDO BLOCO DE CÁLCULO) ===
     custo_carregado = False
     if not custo_df.empty:
         try:
@@ -504,26 +552,19 @@ if uploaded_file:
             df = df.merge(custo_df[["SKU", "Custo_Produto"]], on="SKU", how="left")
             df["Custo_Produto_Total"] = df["Custo_Produto"].fillna(0) * df[coluna_unidades]
 
-            # --- Custo Fiscal (multiplicado pela quantidade) ---
-            if "Custo_Fiscal" in df.columns:
-                df["Custo_Fiscal"] = pd.to_numeric(df["Custo_Fiscal"], errors="coerce").fillna(0)
-                df["Custo_Fiscal"] = df["Custo_Fiscal"] * df[coluna_unidades]
-            else:
-                df["Custo_Fiscal"] = 0.0
-
-            # --- Custo de Embalagem (fixo por venda, não multiplica) ---
+            # --- Custo Fiscal e Embalagem ---
+            # O custo fiscal já foi calculado sobre Valor_Venda (total), mantendo assim.
+            if "Custo_Fiscal" not in df.columns:
+                 df["Custo_Fiscal"] = 0.0
+            
             if "Custo_Embalagem" not in df.columns:
-                df["Custo_Embalagem"] = 0.0
+                 df["Custo_Embalagem"] = 0.0
             else:
-                df["Custo_Embalagem"] = pd.to_numeric(df["Custo_Embalagem"], errors="coerce").fillna(0)
+                 df["Custo_Embalagem"] = pd.to_numeric(df["Custo_Embalagem"], errors="coerce").fillna(0)
 
             # --- Lucro e Margens completas ---
-            df["Lucro_Liquido"] = (
-                df["Lucro_Real"]
-                - df["Custo_Produto_Total"]
-                - df["Custo_Embalagem"]
-                - df["Custo_Fiscal"]
-            )
+            # Lucro Líquido = Lucro Real (já com fiscal/embalagem) - Custo do Produto Total
+            df["Lucro_Liquido"] = (df["Lucro_Real"] - df["Custo_Produto_Total"]).round(2)
 
             df["Margem_Final_%"] = (
                 (df["Lucro_Liquido"] / df["Valor_Venda"].replace(0, np.nan)) * 100
@@ -536,6 +577,18 @@ if uploaded_file:
             custo_carregado = True
         except Exception as e:
             st.error(f"Erro ao aplicar custos: {e}")
+
+    # Garante que as colunas existam para o bloco de métricas, mesmo que o merge de custo falhe
+    if "Margem_Final_%" not in df.columns:
+        df["Margem_Final_%"] = 0.0
+    if "Lucro_Liquido" not in df.columns:
+        df["Lucro_Liquido"] = df["Lucro_Real"].copy()
+    
+    # Define Margem_Liquida_% (baseada em Lucro_Real para o caso sem custos de produto)
+    df["Margem_Liquida_%"] = (
+        (df["Lucro_Real"] / df["Valor_Venda"].replace(0, np.nan)) * 100
+    ).round(2).fillna(0)
+
 
     # === AJUSTE FINAL: ZERA PACOTES APÓS REDISTRIBUIÇÃO ===
     if "Estado" in df.columns:
@@ -551,205 +604,205 @@ if uploaded_file:
         df.loc[mask_pacotes, "Status"] = "🔹 Pacote Agrupado (Somente Controle)"
 
     # === EXCLUI CANCELAMENTOS DO CÁLCULO ===
-    df_validas = df[df["Status"] != "🟦 Cancelamento Correto"]
+    df_validas = df[df["Status"] != "🟦 Cancelamento Correto"].copy() # Cria uma cópia para evitar SettingWithCopyWarning
 
-    # === MÉTRICAS FINAIS ===
+    # === MÉTRICAS FINAIS (CÁLCULO) ===
     if custo_carregado:
         lucro_total = df_validas["Lucro_Liquido"].sum()
         prejuizo_total = abs(df_validas.loc[df_validas["Lucro_Liquido"] < 0, "Lucro_Liquido"].sum())
-        margem_media = df_validas["Margem_Final_%"].mean()
+        margem_media = df_validas["Margem_Final_%"].replace([np.inf, -np.inf], np.nan).mean()
     else:
         lucro_total = df_validas["Lucro_Real"].sum()
         prejuizo_total = abs(df_validas.loc[df_validas["Lucro_Real"] < 0, "Lucro_Real"].sum())
-        margem_media = df_validas["Margem_Liquida_%"].mean()
+        margem_media = df_validas["Margem_Liquida_%"].replace([np.inf, -np.inf], np.nan).mean()
 
     receita_total = df_validas["Valor_Venda"].sum()
     total_vendas = len(df)
     fora_margem = (df["Status"] == "⚠️ Acima da Margem").sum()
     cancelamentos = (df["Status"] == "🟦 Cancelamento Correto").sum()
 
+# === MÉTRICAS FINAIS (EXIBIÇÃO) ===
+# Este bloco usa as variáveis que agora estão inicializadas (0.0) ou calculadas
 col1, col2, col3, col4, col5, col6 = st.columns(6)
 col1.metric("Total de Vendas", total_vendas)
 col2.metric("Fora da Margem", fora_margem)
 col3.metric("Cancelamentos Corretos", cancelamentos)
-col4.metric("Lucro Total (R$)", f"{lucro_total:,.2f}")
-col5.metric("Margem Média (%)", f"{margem_media:.2f}%")
-col6.metric("🔻 Prejuízo Total (R$)", f"{prejuizo_total:,.2f}")
+col4.metric("Lucro Total (R$)", f"{lucro_total:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+col5.metric("Margem Média (%)", f"{margem_media:.2f}%".replace(",", "X").replace(".", ",").replace("X", "."))
+col6.metric("🔻 Prejuízo Total (R$)", f"{prejuizo_total:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
 
-# === ANÁLISE DE TIPOS DE ANÚNCIO ===
-st.markdown("---")
-st.subheader("📊 Análise por Tipo de Anúncio (Clássico x Premium)")
+# Ajusta o formato de números para o padrão BR
+if uploaded_file and df is not None:
+    # === ANÁLISE DE TIPOS DE ANÚNCIO ===
+    st.markdown("---")
+    st.subheader("📊 Análise por Tipo de Anúncio (Clássico x Premium)")
 
-if "Tipo_Anuncio" in df.columns:
-    # Corrige campos vazios e preenche pacotes
-    df["Tipo_Anuncio"] = (
-        df["Tipo_Anuncio"]
-        .astype(str)
-        .str.strip()
-        .replace(["nan", "None", ""], "Agrupado (Pacotes)")
-    )
+    if "Tipo_Anuncio" in df.columns:
+        # Corrige campos vazios e preenche pacotes
+        df["Tipo_Anuncio"] = (
+            df["Tipo_Anuncio"]
+            .astype(str)
+            .str.strip()
+            .replace(["nan", "None", ""], "Agrupado (Pacotes)")
+        )
 
-    tipo_counts = df["Tipo_Anuncio"].value_counts(dropna=False).reset_index()
-    tipo_counts.columns = ["Tipo de Anúncio", "Quantidade"]
-    tipo_counts["% Participação"] = (
-        tipo_counts["Quantidade"] / tipo_counts["Quantidade"].sum() * 100
-    ).round(2)
+        tipo_counts = df["Tipo_Anuncio"].value_counts(dropna=False).reset_index()
+        tipo_counts.columns = ["Tipo de Anúncio", "Quantidade"]
+        tipo_counts["% Participação"] = (
+            tipo_counts["Quantidade"] / tipo_counts["Quantidade"].sum() * 100
+        ).round(2)
 
-    col1, col2 = st.columns(2)
-    col1.metric(
-        "Anúncios Clássicos",
-        int(
-            tipo_counts.loc[
-                tipo_counts["Tipo de Anúncio"].str.contains("Clássico", case=False),
-                "Quantidade"
-            ].sum()
-        ),
-    )
-    col2.metric(
-        "Anúncios Premium",
-        int(
-            tipo_counts.loc[
-                tipo_counts["Tipo de Anúncio"].str.contains("Premium", case=False),
-                "Quantidade"
-            ].sum()
-        ),
-    )
+        col1, col2 = st.columns(2)
+        col1.metric(
+            "Anúncios Clássicos",
+            int(
+                tipo_counts.loc[
+                    tipo_counts["Tipo de Anúncio"].str.contains("Clássico", case=False, na=False),
+                    "Quantidade"
+                ].sum()
+            ),
+        )
+        col2.metric(
+            "Anúncios Premium",
+            int(
+                tipo_counts.loc[
+                    tipo_counts["Tipo de Anúncio"].str.contains("Premium", case=False, na=False),
+                    "Quantidade"
+                ].sum()
+            ),
+        )
 
-    st.dataframe(tipo_counts, use_container_width=True)
+        st.dataframe(tipo_counts, use_container_width=True)
 
-    # Exporta o resumo para Excel
-    output_tipos = BytesIO()
-    with pd.ExcelWriter(output_tipos, engine="xlsxwriter") as writer:
-        tipo_counts.to_excel(writer, index=False, sheet_name="Tipos_Anuncio")
-    output_tipos.seek(0)
-    st.download_button(
-        label="⬇️ Exportar Resumo de Tipos (Excel)",
-        data=output_tipos,
-        file_name=f"Resumo_Tipos_Anuncio_{datetime.now().strftime('%d-%m-%Y_%H-%M-%S')}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
-else:
-    st.warning("⚠️ Nenhuma coluna de tipo de anúncio encontrada no arquivo enviado.")
-
-# === ALERTA DE PRODUTO ===
-st.markdown("---")
-st.subheader("🚨 Produtos Fora da Margem")
-df_alerta = df[df["Status"] == "⚠️ Acima da Margem"]
-if not df_alerta.empty:
-    produto_critico = (
-        df_alerta.groupby(["SKU", "Anuncio", "Produto"])
-        .size().reset_index(name="Ocorrências")
-        .sort_values("Ocorrências", ascending=False).head(1)
-    )
-    sku_critico = produto_critico.iloc[0]["SKU"]
-    produto_nome = produto_critico.iloc[0]["Produto"]
-    anuncio_critico = produto_critico.iloc[0]["Anuncio"]
-    ocorrencias = produto_critico.iloc[0]["Ocorrências"]
-
-    st.warning(
-        f"🚨 Produto com mais vendas fora da margem: **{produto_nome}** "
-        f"(SKU: {sku_critico} | Anúncio: {anuncio_critico} | {ocorrencias} ocorrências)"
-    )
-
-    exemplo = df_alerta[df_alerta["SKU"] == sku_critico].head(1)
-    if not exemplo.empty:
-        st.markdown("**🧾 Exemplo de venda afetada:**")
-        st.write(exemplo[[
-            "Venda", "Data", "Valor_Venda", "Valor_Recebido", "Tarifa_Venda",
-            "Tarifa_Envio", "Lucro_Real", "%Diferença"
-        ]])
-
-    vendas_afetadas = df_alerta[df_alerta["SKU"] == sku_critico]
-    st.markdown("**📄 Todas as vendas afetadas por esse produto:**")
-    st.dataframe(vendas_afetadas, use_container_width=True)
-
-    output_alerta = BytesIO()
-    with pd.ExcelWriter(output_alerta, engine="xlsxwriter") as writer:
-        vendas_afetadas.to_excel(writer, index=False, sheet_name="Fora_da_Margem")
-    output_alerta.seek(0)
-    st.download_button(
-        label="⬇️ Exportar Vendas Afetadas (Excel)",
-        data=output_alerta,
-        file_name=f"Vendas_Fora_da_Margem_{sku_critico}_{datetime.now().strftime('%d-%m-%Y_%H-%M-%S')}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
-else:
-    st.success("✅ Nenhum produto com vendas fora da margem no período.")
-
-# === CONSULTA SKU ===
-st.markdown("---")
-st.subheader("🔎 Conferência Manual de SKU")
-sku_detalhe = st.text_input("Digite o SKU para detalhar:")
-if sku_detalhe:
-    filtro = df[df["SKU"].astype(str) == sku_detalhe.strip()]
-    if filtro.empty:
-        st.warning("Nenhum registro encontrado para este SKU.")
+        # Exporta o resumo para Excel
+        output_tipos = BytesIO()
+        with pd.ExcelWriter(output_tipos, engine="xlsxwriter") as writer:
+            tipo_counts.to_excel(writer, index=False, sheet_name="Tipos_Anuncio")
+        output_tipos.seek(0)
+        st.download_button(
+            label="⬇️ Exportar Resumo de Tipos (Excel)",
+            data=output_tipos,
+            file_name=f"Resumo_Tipos_Anuncio_{datetime.now().strftime('%d-%m-%Y_%H-%M-%S')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
     else:
-        st.write(filtro[[
-            "Produto", "Valor_Venda", "Tarifa_Venda", "Tarifa_Envio",
-            "Custo_Embalagem", "Custo_Fiscal", "Lucro_Bruto", "Lucro_Real",
-            "Unidades", "Margem_Liquida_%"
-        ]].dropna(axis=1, how="all"))
+        st.warning("⚠️ Nenhuma coluna de tipo de anúncio encontrada no arquivo enviado.")
 
-# === VISUALIZAÇÃO DOS DADOS ANALISADOS ===
-st.markdown("---")
-st.subheader("📋 Itens Avaliados")
+    # === ALERTA DE PRODUTO ===
+    st.markdown("---")
+    st.subheader("🚨 Produtos Fora da Margem")
+    df_alerta = df[df["Status"] == "⚠️ Acima da Margem"].copy()
+    if not df_alerta.empty:
+        produto_critico = (
+            df_alerta.groupby(["SKU", "Anuncio", "Produto"])
+            .size().reset_index(name="Ocorrências")
+            .sort_values("Ocorrências", ascending=False).head(1)
+        )
+        sku_critico = produto_critico.iloc[0]["SKU"]
+        produto_nome = produto_critico.iloc[0]["Produto"]
+        anuncio_critico = produto_critico.iloc[0]["Anuncio"]
+        ocorrencias = produto_critico.iloc[0]["Ocorrências"]
 
-st.dataframe(
-    df[
-        [
-            "Venda", "Data", "Produto", "SKU", "Tipo_Anuncio",
-            coluna_unidades, "Valor_Venda", "Valor_Recebido",
-            "Tarifa_Venda", "Tarifa_Percentual_%", "Tarifa_Fixa_R$", "Tarifa_Total_R$",
-            "Tarifa_Envio", "Cancelamentos",
-            "Lucro_Real", "Margem_Liquida_%", "Status", "Origem_Pacote"
-        ]
-        if "SKU" in df.columns
-        else df.columns
-    ],
-    use_container_width=True,
-    height=450
-)
+        st.warning(
+            f"🚨 Produto com mais vendas fora da margem: **{produto_nome}** "
+            f"(SKU: {sku_critico} | Anúncio: {anuncio_critico} | {ocorrencias} ocorrências)"
+        )
 
-# === EXPORTAÇÃO FINAL (colunas principais e financeiras) ===
-colunas_principais = [
-    "Venda", "Data", "Produto", "SKU", "Tipo_Anuncio",
-    "Unidades", "Valor_Venda", "Valor_Recebido",
-    "Tarifa_Venda", "Tarifa_Percentual_%", "Tarifa_Fixa_R$", "Tarifa_Total_R$",
-    "Tarifa_Envio", "Cancelamentos",
-    "Custo_Embalagem", "Custo_Fiscal", "Receita_Envio",
-    "Lucro_Bruto", "Lucro_Real", "Margem_Liquida_%",
-    "Custo_Produto", "Custo_Produto_Total",
-    "Lucro_Liquido", "Margem_Final_%", "Markup_%",
-    "Origem_Pacote", "Status"
-]
+        exemplo = df_alerta[df_alerta["SKU"] == sku_critico].head(1)
+        if not exemplo.empty:
+            st.markdown("**🧾 Exemplo de venda afetada:**")
+            cols_to_display = [
+                "Venda", "Data", "Valor_Venda", "Valor_Recebido", "Tarifa_Venda",
+                "Tarifa_Envio", "Lucro_Real", "%Diferença"
+            ]
+            exemplo_display = exemplo[[c for c in cols_to_display if c in exemplo.columns]]
+            st.write(exemplo_display)
 
-# Mantém apenas as colunas que realmente existem
-colunas_exportar = [c for c in colunas_principais if c in df.columns]
-df_export = df[colunas_exportar].copy()
 
-output = BytesIO()
-with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-    df_export.to_excel(writer, index=False, sheet_name="Auditoria", freeze_panes=(1, 0))
-output.seek(0)
+        vendas_afetadas = df_alerta[df_alerta["SKU"] == sku_critico]
+        st.markdown("**📄 Todas as vendas afetadas por esse produto:**")
+        st.dataframe(vendas_afetadas, use_container_width=True)
 
-st.download_button(
-    label="⬇️ Baixar Relatório XLSX (colunas principais e financeiras)",
-    data=output,
-    file_name=f"Auditoria_ML_{datetime.now().strftime('%d-%m-%Y_%H-%M-%S')}.xlsx",
-    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-)
+        output_alerta = BytesIO()
+        with pd.ExcelWriter(output_alerta, engine="xlsxwriter") as writer:
+            vendas_afetadas.to_excel(writer, index=False, sheet_name="Fora_da_Margem")
+        output_alerta.seek(0)
+        st.download_button(
+            label="⬇️ Exportar Vendas Afetadas (Excel)",
+            data=output_alerta,
+            file_name=f"Vendas_Fora_da_Margem_{sku_critico}_{datetime.now().strftime('%d-%m-%Y_%H-%M-%S')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+    else:
+        st.success("✅ Nenhum produto com vendas fora da margem no período.")
+
+    # === CONSULTA SKU ===
+    st.markdown("---")
+    st.subheader("🔎 Conferência Manual de SKU")
+    sku_detalhe = st.text_input("Digite o SKU para detalhar:")
+    if sku_detalhe:
+        filtro = df[df["SKU"].astype(str) == sku_detalhe.strip()]
+        if filtro.empty:
+            st.warning("Nenhum registro encontrado para este SKU.")
+        else:
+            cols_to_display = [
+                "Produto", "Valor_Venda", "Tarifa_Venda", "Tarifa_Envio",
+                "Custo_Embalagem", "Custo_Fiscal", "Lucro_Bruto", "Lucro_Real",
+                coluna_unidades, "Margem_Liquida_%"
+            ]
+            filtro_display = filtro[[c for c in cols_to_display if c in filtro.columns]]
+            st.write(filtro_display.dropna(axis=1, how="all"))
+
+    # === VISUALIZAÇÃO DOS DADOS ANALISADOS ===
+    st.markdown("---")
+    st.subheader("📋 Itens Avaliados")
+
+    colunas_vis = [
+        "Venda", "Data", "Produto", "SKU", "Tipo_Anuncio",
+        coluna_unidades, "Valor_Venda", "Valor_Recebido",
+        "Tarifa_Venda", "Tarifa_Percentual_%", "Tarifa_Fixa_R$", "Tarifa_Total_R$",
+        "Tarifa_Envio", "Cancelamentos",
+        "Lucro_Real", "Margem_Liquida_%", "Status", "Origem_Pacote"
+    ]
+
+    # Filtra colunas que realmente existem no df
+    cols_existentes = [c for c in colunas_vis if c in df.columns]
+
+    st.dataframe(
+        df[cols_existentes],
+        use_container_width=True,
+        height=450
+    )
+
+    # === EXPORTAÇÃO FINAL (colunas principais e financeiras) ===
+    colunas_principais = [
+        "Venda", "Data", "Produto", "SKU", "Tipo_Anuncio",
+        "Unidades", "Valor_Venda", "Valor_Recebido",
+        "Tarifa_Venda", "Tarifa_Percentual_%", "Tarifa_Fixa_R$", "Tarifa_Total_R$",
+        "Tarifa_Envio", "Cancelamentos",
+        "Custo_Embalagem", "Custo_Fiscal", "Receita_Envio",
+        "Lucro_Bruto", "Lucro_Real", "Margem_Liquida_%",
+        "Custo_Produto", "Custo_Produto_Total",
+        "Lucro_Liquido", "Margem_Final_%", "Markup_%",
+        "Origem_Pacote", "Status"
+    ]
+
+    # Mantém apenas as colunas que realmente existem
+    colunas_exportar = [c for c in colunas_principais if c in df.columns]
+    df_export = df[colunas_exportar].copy()
+
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+        df_export.to_excel(writer, index=False, sheet_name="Auditoria", freeze_panes=(1, 0))
+    output.seek(0)
+
+    st.download_button(
+        label="⬇️ Baixar Relatório XLSX (colunas principais e financeiras)",
+        data=output,
+        file_name=f"Auditoria_ML_{datetime.now().strftime('%d-%m-%Y_%H-%M-%S')}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
 
 # === CASO NENHUM ARQUIVO TENHA SIDO ENVIADO ===
-else_block = False
-try:
-    if "uploaded_file" in locals() and uploaded_file:
-        else_block = True
-except:
-    pass
-
-if not else_block:
+else: # Se uploaded_file for False ou df for None
     st.info("Envie o arquivo Excel de vendas para iniciar a análise.")
-
-
-
