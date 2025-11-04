@@ -656,8 +656,9 @@ if uploaded_file:
             [
                 "Venda", "Data", "Produto", "SKU", "Tipo_Anuncio",
                 coluna_unidades, "Valor_Venda", "Valor_Recebido",
-                "Tarifa_Venda", "Tarifa_Envio", "Cancelamentos",
-                "Lucro_Real", "Margem_Liquida_%", "Status"
+                "Tarifa_Venda", "Tarifa_Percentual_%", "Tarifa_Fixa_R$", "Tarifa_Total_R$",
+                "Tarifa_Envio", "Cancelamentos",
+                "Lucro_Real", "Margem_Liquida_%", "Status", "Origem_Pacote"
             ]
             if "SKU" in df.columns
             else df.columns
@@ -670,12 +671,13 @@ if uploaded_file:
     colunas_principais = [
         "Venda", "Data", "Produto", "SKU", "Tipo_Anuncio",
         "Unidades", "Valor_Venda", "Valor_Recebido",
-        "Tarifa_Venda", "Tarifa_Envio", "Cancelamentos",
+        "Tarifa_Venda", "Tarifa_Percentual_%", "Tarifa_Fixa_R$", "Tarifa_Total_R$",
+        "Tarifa_Envio", "Cancelamentos",
         "Custo_Embalagem", "Custo_Fiscal", "Receita_Envio",
         "Lucro_Bruto", "Lucro_Real", "Margem_Liquida_%",
         "Custo_Produto", "Custo_Produto_Total",
         "Lucro_Liquido", "Margem_Final_%", "Markup_%",
-        "Status"
+        "Origem_Pacote", "Status"
     ]
 
     # Mantém apenas as colunas que realmente existem
