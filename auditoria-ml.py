@@ -259,6 +259,34 @@ if uploaded_file and df is not None:
     # Renomeia apenas o que consta no mapeamento
     df.rename(columns={c: col_map[c] for c in col_map if c in df.columns}, inplace=True)
 
+    # === CRIAÇÃO AUTOMÁTICA DA COLUNA ORIGEM_PACOTE ===
+import re
+
+if "Estado" in df.columns and "Venda" in df.columns:
+    def identificar_pacote(row):
+        """Se for linha de pacote, retorna o ID do pacote."""
+        estado = str(row["Estado"]).strip().lower()
+        if "pacote de" in estado:
+            return f"{row['Venda']}-PACOTE"
+        return None
+
+    # Cria coluna base
+    df["Origem_Pacote"] = df.apply(identificar_pacote, axis=1)
+
+    # Propaga o código de pacote para os itens do mesmo pedido
+    df["Origem_Pacote"] = df["Origem_Pacote"].ffill()
+else:
+    df["Origem_Pacote"] = None
+
+# Mostra um diagnóstico visual rápido
+st.markdown("---")
+st.subheader("🧩 Diagnóstico da Coluna Origem_Pacote")
+if "Origem_Pacote" in df.columns:
+    st.dataframe(df[["Venda", "Produto", "Origem_Pacote"]].head(30))
+else:
+    st.warning("A coluna 'Origem_Pacote' não existe no DataFrame.")
+
+
     # === AJUSTE VENDA (MOVIDO PARA CÁ: ESSENCIAL PARA IDENTIFICAÇÃO DE PACOTES) ===
     def formatar_venda(valor):
         if pd.isna(valor):
