@@ -494,7 +494,8 @@ if uploaded_file:
     df["Lucro_Real"] = (
         df["Lucro_Bruto"] - (df["Custo_Embalagem"] + df["Custo_Fiscal"])
     ).round(2)
-
+    
+if uploaded_file:
     # === PLANILHA DE CUSTOS ===
     custo_carregado = False
     if not custo_df.empty:
