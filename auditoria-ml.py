@@ -259,56 +259,6 @@ if uploaded_file and df is not None:
     # Renomeia apenas o que consta no mapeamento
     df.rename(columns={c: col_map[c] for c in col_map if c in df.columns}, inplace=True)
 
-    # === CRIAÇÃO AUTOMÁTICA DA COLUNA ORIGEM_PACOTE ===
-import re
-
-if "Estado" in df.columns and "Venda" in df.columns:
-    def identificar_pacote(row):
-        """Se for linha de pacote, retorna o ID do pacote."""
-        estado = str(row["Estado"]).strip().lower()
-        if "pacote de" in estado:
-            return f"{row['Venda']}-PACOTE"
-        return None
-
-    # Cria coluna base
-    df["Origem_Pacote"] = df.apply(identificar_pacote, axis=1)
-
-    # Propaga o código de pacote para os itens do mesmo pedido
-    df["Origem_Pacote"] = df["Origem_Pacote"].ffill()
-else:
-    df["Origem_Pacote"] = None
-
-# Mostra um diagnóstico visual rápido
-st.markdown("---")
-st.subheader("🧩 Diagnóstico da Coluna Origem_Pacote")
-if "Origem_Pacote" in df.columns:
-    st.dataframe(df[["Venda", "Produto", "Origem_Pacote"]].head(30))
-else:
-    st.warning("A coluna 'Origem_Pacote' não existe no DataFrame.")
-
-
-    # === AJUSTE VENDA (MOVIDO PARA CÁ: ESSENCIAL PARA IDENTIFICAÇÃO DE PACOTES) ===
-    def formatar_venda(valor):
-        if pd.isna(valor):
-            return ""
-        return re.sub(r"[^\d]", "", str(valor))
-    df["Venda"] = df["Venda"].apply(formatar_venda)
-    
-    # === AJUSTE SKU (MOVIDO PARA CÁ: ESSENCIAL PARA DADOS LIMPOS NOS ITENS FILHOS) ===
-    def limpar_sku(valor):
-        if pd.isna(valor):
-            return ""
-        valor = str(valor).strip()
-        # Mantém hífens (para pacotes) e remove apenas outros caracteres
-        valor = re.sub(r"[^\d\-]", "", valor)
-        # Evita limpar SKUs compostos (como 3888-3937)
-        if "-" not in valor:
-            valor = valor.lstrip("0") or "0"
-        return valor
-
-    if "SKU" in df.columns:
-        df["SKU"] = df["SKU"].apply(limpar_sku)
-
     # === REDISTRIBUI PACOTES (COM DETALHAMENTO DE TARIFAS E FRETE POR UNIDADE) ===
     # import re # Já importado
 
@@ -355,12 +305,6 @@ else:
         subset = df.iloc[i + 1 : i + 1 + qtd].copy()
         if subset.empty:
             continue
-            
-        # Garante que o ID da Venda Pai é válido antes de prosseguir
-        venda_pai_id = str(row['Venda']).strip()
-        if not venda_pai_id:
-             st.warning(f"⚠️ Aviso: Pacote da venda na linha {i+6} tem N.º de venda inválido/vazio e foi ignorado.")
-             continue
 
         total_venda = float(row.get("Valor_Venda", 0) or 0)
         total_recebido = float(row.get("Valor_Recebido", 0) or 0)
@@ -373,9 +317,9 @@ else:
         subset["Preco_Unitario_Item"] = pd.to_numeric(subset[col_preco_unitario], errors="coerce").fillna(0)
         
         # Calcula a soma dos preços unitários dos itens do pacote para proporção
-        soma_precos = subset["Preco_Unitario_Item"].sum()  
+        soma_precos = subset["Preco_Unitario_Item"].sum() 
         # Calcula a soma das unidades para proporção de frete
-        total_unidades = subset[coluna_unidades].sum() or 1  
+        total_unidades = subset[coluna_unidades].sum() or 1 
 
         total_tarifas_calc = total_recebido_calc = total_frete_calc = 0
 
@@ -409,7 +353,7 @@ else:
             df.loc[j, "Tarifa_Fixa_R$"] = custo_fixo * unidades_item
             df.loc[j, "Tarifa_Total_R$"] = tarifa_total
             df.loc[j, "Tarifa_Envio"] = frete_item
-            df.loc[j, "Origem_Pacote"] = f"{venda_pai_id}-PACOTE" # ID de venda pai garantido como string e limpo
+            df.loc[j, "Origem_Pacote"] = f"{row['Venda']}-PACOTE"
             df.loc[j, "Valor_Item_Total"] = valor_item_total
 
             total_tarifas_calc += tarifa_total
@@ -430,10 +374,8 @@ else:
 
     # === VALIDAÇÃO DOS PACOTES ===
     df["Tarifa_Validada_ML"] = ""
-    # Filtra apenas linhas que são strings e terminam com -PACOTE
-    mask_pacotes_filhos = df["Origem_Pacote"].apply(lambda x: isinstance(x, str) and x.endswith("-PACOTE"))
-    
-    for pacote in df.loc[mask_pacotes_filhos, "Origem_Pacote"].unique():
+    mask_pacotes = df["Origem_Pacote"].notna()
+    for pacote in df.loc[mask_pacotes, "Origem_Pacote"].unique():
         if not isinstance(pacote, str):
             continue
             
@@ -457,8 +399,21 @@ else:
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0).abs()
 
-    # O bloco de limpeza de SKU e Venda foi movido para antes
-    
+    # === AJUSTE SKU ===
+    def limpar_sku(valor):
+        if pd.isna(valor):
+            return ""
+        valor = str(valor).strip()
+        # Mantém hífens (para pacotes) e remove apenas outros caracteres
+        valor = re.sub(r"[^\d\-]", "", valor)
+        # Evita limpar SKUs compostos (como 3888-3937)
+        if "-" not in valor:
+            valor = valor.lstrip("0") or "0"
+        return valor
+
+    if "SKU" in df.columns:
+        df["SKU"] = df["SKU"].apply(limpar_sku)
+
     # === COMPLETA DADOS DE PACOTES COM SKUs E TÍTULOS AGRUPADOS ===
     for i, row in df.iterrows():
         estado = str(row.get("Estado", ""))
@@ -477,7 +432,6 @@ else:
             continue
 
         # Concatena SKUs e títulos dos filhos
-        # OBS: Como o SKU foi limpo ANTES, ele já deve estar ok aqui.
         skus = subset["SKU"].astype(str).replace("nan", "").unique().tolist()
         produtos = subset["Produto"].astype(str).replace("nan", "").unique().tolist()
 
@@ -504,6 +458,13 @@ else:
         use_container_width=True,
         height=200
     )
+
+    # === AJUSTE VENDA ===
+    def formatar_venda(valor):
+        if pd.isna(valor):
+            return ""
+        return re.sub(r"[^\d]", "", str(valor))
+    df["Venda"] = df["Venda"].apply(formatar_venda)
 
     # === DATA ===
     df["Data"] = df["Data"].astype(str).str.replace(r"(hs\.?|às)", "", regex=True).str.strip()
@@ -727,104 +688,9 @@ if uploaded_file and df is not None:
     else:
         st.warning("⚠️ Nenhuma coluna de tipo de anúncio encontrada no arquivo enviado.")
 
-st.markdown("---")
-st.subheader("🧩 Diagnóstico da Coluna Origem_Pacote")
-if "Origem_Pacote" in df.columns:
-    st.dataframe(df[["Venda", "Produto", "Origem_Pacote"]].head(20))
-else:
-    st.warning("A coluna 'Origem_Pacote' não existe no DataFrame.")
-
-# === ANÁLISE ANALÍTICA DE MARGEM POR ITEM DE PACOTE ===
-st.markdown("---")
-st.subheader("📦 Margem Analítica por Item de Pacote")
-
-if df is None or "Origem_Pacote" not in df.columns:
-    st.info("Nenhum pacote com múltiplos produtos encontrado para análise detalhada.")
-else:
-    try:
-        mask_filhos = df["Origem_Pacote"].apply(
-            lambda x: isinstance(x, str) and "PACOTE" in x.upper() and not x.strip().upper().startswith("PACOTE")
-        )
-        df_pacotes_itens = df[mask_filhos].copy()
-
-        if df_pacotes_itens.empty:
-            st.info("Nenhum pacote com múltiplos produtos encontrado para análise detalhada.")
-        else:
-            st.write(f"🔍 {len(df_pacotes_itens['Origem_Pacote'].unique())} pacotes identificados para análise...")
-            analitico = []
-
-            for idx, pacote_id in enumerate(df_pacotes_itens["Origem_Pacote"].unique(), start=1):
-                st.caption(f"📦 Processando pacote {idx}/{len(df_pacotes_itens['Origem_Pacote'].unique())}: {pacote_id}")
-                
-                grupo = df[df["Origem_Pacote"] == pacote_id]
-                if grupo.empty:
-                    continue
-
-                venda_pai = pacote_id.replace("-PACOTE", "")
-                linha_pai = df[df["Venda"].astype(str) == venda_pai]
-                if linha_pai.empty:
-                    st.warning(f"⚠️ Linha pai não encontrada para venda {venda_pai}")
-                    continue
-
-                total_venda = float(linha_pai["Valor_Venda"].iloc[0] or 0)
-                total_frete = float(linha_pai["Tarifa_Envio"].iloc[0] or 0)
-                total_tarifa = float(linha_pai["Tarifa_Venda"].iloc[0] or 0)
-                total_custofiscal = float(linha_pai.get("Custo_Fiscal", pd.Series([0.0])).iloc[0])
-                total_embalagem = float(linha_pai.get("Custo_Embalagem", pd.Series([0.0])).iloc[0])
-
-                soma_valores_itens = grupo["Valor_Venda"].sum()
-                if soma_valores_itens <= 0:
-                    st.warning(f"⚠️ Pacote {venda_pai} ignorado (Valor_Venda total zero)")
-                    continue
-
-                num_itens = max(len(grupo), 1)
-
-                for _, item in grupo.iterrows():
-                    valor_venda = float(item.get("Valor_Venda", 0) or 0)
-                    proporcao = valor_venda / soma_valores_itens
-                    tarifa_prop = round(total_tarifa * proporcao, 2)
-                    frete_prop = round(total_frete * proporcao, 2)
-                    fiscal_prop = round(total_custofiscal * proporcao, 2)
-                    embalagem_prop = round(total_embalagem / num_itens, 2)
-
-                    custo_prod = float(item.get("Custo_Produto", 0) or 0) * float(item.get(coluna_unidades, 1) or 1)
-                    lucro_liquido = valor_venda - tarifa_prop - frete_prop - fiscal_prop - embalagem_prop - custo_prod
-                    margem_item = round((lucro_liquido / valor_venda) * 100, 2) if valor_venda > 0 else 0
-
-                    analitico.append({
-                        "Pacote": pacote_id,
-                        "Venda_Pai": venda_pai,
-                        "Produto": item["Produto"],
-                        "SKU": item["SKU"],
-                        "Unidades": item[coluna_unidades],
-                        "Valor_Venda_Item": valor_venda,
-                        "Tarifa_Prop": tarifa_prop,
-                        "Frete_Prop": frete_prop,
-                        "Fiscal_Prop": fiscal_prop,
-                        "Embalagem_Prop": embalagem_prop,
-                        "Custo_Produto_Total": round(custo_prod, 2),
-                        "Lucro_Liquido_Item": round(lucro_liquido, 2),
-                        "Margem_Item_%": margem_item
-                    })
-
-            st.success("✅ Análise de pacotes concluída.")
-
-            if analitico:
-                df_analitico = pd.DataFrame(analitico)
-                st.dataframe(df_analitico.head(20), use_container_width=True)
-            else:
-                st.info("Nenhum pacote processado com sucesso.")
-                
-    except Exception as e:
-        st.error(f"❌ Erro ao processar análise de pacotes: {e}")
-       
     # === ALERTA DE PRODUTO ===
     st.markdown("---")
     st.subheader("🚨 Produtos Fora da Margem")
-    # === GARANTE EXISTÊNCIA DA COLUNA STATUS ===
-    if "Status" not in df.columns:
-      df["Status"] = ""
-
     df_alerta = df[df["Status"] == "⚠️ Acima da Margem"].copy()
     if not df_alerta.empty:
         produto_critico = (
@@ -911,28 +777,32 @@ else:
     # === EXPORTAÇÃO FINAL (colunas principais e financeiras) ===
     colunas_principais = [
         "Venda", "Data", "Produto", "SKU", "Tipo_Anuncio",
-        coluna_unidades, "Valor_Venda", "Valor_Recebido",
-        "Tarifa_Venda", "Tarifa_Envio", "Cancelamentos",
-        "Custo_Fiscal", "Custo_Embalagem",
-        "Custo_Produto_Total", "Lucro_Real", "Lucro_Liquido",
-        "Margem_Liquida_%", "Margem_Final_%", "Markup_%",
-        "Status", "Origem_Pacote", "Tarifa_Validada_ML"
+        "Unidades", "Valor_Venda", "Valor_Recebido",
+        "Tarifa_Venda", "Tarifa_Percentual_%", "Tarifa_Fixa_R$", "Tarifa_Total_R$",
+        "Tarifa_Envio", "Cancelamentos",
+        "Custo_Embalagem", "Custo_Fiscal", "Receita_Envio",
+        "Lucro_Bruto", "Lucro_Real", "Margem_Liquida_%",
+        "Custo_Produto", "Custo_Produto_Total",
+        "Lucro_Liquido", "Margem_Final_%", "Markup_%",
+        "Origem_Pacote", "Status"
     ]
 
-    output_final = BytesIO()
-    with pd.ExcelWriter(output_final, engine="xlsxwriter") as writer:
-        df_export = df[[c for c in colunas_principais if c in df.columns]].copy()
-        
-        # Renomeia coluna de unidades para o export final
-        if coluna_unidades != "Unidades":
-             df_export.rename(columns={coluna_unidades: "Unidades"}, inplace=True)
-             
-        df_export.to_excel(writer, index=False, sheet_name="Auditoria_Completa")
-    output_final.seek(0)
+    # Mantém apenas as colunas que realmente existem
+    colunas_exportar = [c for c in colunas_principais if c in df.columns]
+    df_export = df[colunas_exportar].copy()
+
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+        df_export.to_excel(writer, index=False, sheet_name="Auditoria", freeze_panes=(1, 0))
+    output.seek(0)
 
     st.download_button(
-        label="⬇️ Exportar Auditoria Completa (Excel)",
-        data=output_final,
-        file_name=f"Auditoria_Vendas_ML_Completa_{datetime.now().strftime('%d-%m-%Y_%H-%M-%S')}.xlsx",
+        label="⬇️ Baixar Relatório XLSX (colunas principais e financeiras)",
+        data=output,
+        file_name=f"Auditoria_ML_{datetime.now().strftime('%d-%m-%Y_%H-%M-%S')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
+
+# === CASO NENHUM ARQUIVO TENHA SIDO ENVIADO ===
+else: # Se uploaded_file for False ou df for None
+    st.info("Envie o arquivo Excel de vendas para iniciar a análise.")
