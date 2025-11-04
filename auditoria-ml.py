@@ -240,7 +240,7 @@ if uploaded_file:
     # Renomeia apenas o que consta no mapeamento
     df.rename(columns={c: col_map[c] for c in col_map if c in df.columns}, inplace=True)
 
-    # === REDISTRIBUI PACOTES (COM DETALHAMENTO DE TARIFAS E FRETE POR UNIDADE) ===
+        # === REDISTRIBUI PACOTES (COM DETALHAMENTO DE TARIFAS E FRETE POR UNIDADE) ===
     import re
 
     def calcular_custo_fixo(preco_unit):
@@ -283,9 +283,10 @@ if uploaded_file:
         total_venda = float(row.get("Valor_Venda", 0) or 0)
         total_recebido = float(row.get("Valor_Recebido", 0) or 0)
 
-        # Captura o valor total do frete
+        # Captura o valor total do frete (Tarifa_Envio da linha principal)
         frete_total = float(row.get("Tarifa_Envio", 0) or 0)
 
+        # Define a coluna de preço unitário
         col_preco_unitario = "Preco_Unitario" if "Preco_Unitario" in subset.columns else "Preço unitário de venda do anúncio (BRL)"
         subset["Preco_Unitario_Item"] = pd.to_numeric(subset[col_preco_unitario], errors="coerce").fillna(0)
         soma_precos = subset["Preco_Unitario_Item"].sum() or qtd
@@ -329,17 +330,17 @@ if uploaded_file:
         df.loc[i, "Margem_Final_%"] = 0
         df.loc[i, "Markup_%"] = 0
 
-# 🆕 adiciona coluna de validação automática (bate pacotes com ML)
-df["Tarifa_Validada_ML"] = ""
-mask_pacotes = df["Origem_Pacote"].notna()
-for pacote in df.loc[mask_pacotes, "Origem_Pacote"].unique():
-    if not isinstance(pacote, str) or not pacote.endswith("-PACOTE"):
-        continue
-    filhos = df[df["Origem_Pacote"] == pacote]
-    pai = df[df["Venda"].astype(str).eq(pacote.split("-")[0])]
-    soma_filhas = filhos["Tarifa_Venda"].sum() + filhos["Tarifa_Envio"].sum()
-    tarifa_pai = pai["Tarifa_Venda"].sum() + pai["Tarifa_Envio"].sum()
-    df.loc[df["Origem_Pacote"] == pacote, "Tarifa_Validada_ML"] = "✔️" if abs(soma_filhas - tarifa_pai) < 1 else "❌"
+    # === VALIDAÇÃO DOS PACOTES ===
+    df["Tarifa_Validada_ML"] = ""
+    mask_pacotes = df["Origem_Pacote"].notna()
+    for pacote in df.loc[mask_pacotes, "Origem_Pacote"].unique():
+        if not isinstance(pacote, str) or not pacote.endswith("-PACOTE"):
+            continue
+        filhos = df[df["Origem_Pacote"] == pacote]
+        pai = df[df["Venda"].astype(str).eq(pacote.split("-")[0])]
+        soma_filhas = filhos["Tarifa_Venda"].sum() + filhos["Tarifa_Envio"].sum()
+        tarifa_pai = pai["Tarifa_Venda"].sum() + pai["Tarifa_Envio"].sum()
+        df.loc[df["Origem_Pacote"] == pacote, "Tarifa_Validada_ML"] = "✔️" if abs(soma_filhas - tarifa_pai) < 1 else "❌"
 
     # === CONVERSÕES ===
     for c in ["Valor_Venda", "Valor_Recebido", "Tarifa_Venda", "Tarifa_Envio", "Cancelamentos", "Preco_Unitario"]:
