@@ -714,7 +714,11 @@ if uploaded_file and df is not None:
         # Usando .unique() na coluna de Origem_Pacote (e.g., "12345-PACOTE")
         for pacote_id in df_pacotes_itens["Origem_Pacote"].unique():
             # Filtra todos os itens que pertencem a este pacote
-            grupo = df_pacotes_itens[df_pacotes_itens["Origem_Pacote"] == pacote_id].copy()
+            # Filtra linhas de pacotes (filhas) — mais robusto contra variações de texto
+            df_pacotes_itens = df[
+            df["Origem_Pacote"].notna() &
+            df["Origem_Pacote"].astype(str).str.contains("-PACOTE", case=False)
+            ].copy()
             if grupo.empty:
                 continue
 
