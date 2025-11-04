@@ -241,9 +241,6 @@ if uploaded_file:
     # Renomeia apenas o que consta no mapeamento
     df.rename(columns={c: col_map[c] for c in col_map if c in df.columns}, inplace=True)
 
-            # Renomeia apenas o que consta no mapeamento
-    df.rename(columns={c: col_map[c] for c in col_map if c in df.columns}, inplace=True)
-
 # === REDISTRIBUI PACOTES (COM DETALHAMENTO DE TARIFAS E FRETE POR UNIDADE) ===
 import re
 
