@@ -201,6 +201,25 @@ if uploaded_file:
     # --- LEITURA COMPLETA ---
     df = pd.read_excel(uploaded_file, sheet_name="Vendas BR", header=5)
     df.columns = df.columns.str.strip().str.replace(r"\s+", " ", regex=True)
+                        
+    # === COLUNA DE UNIDADES ===
+    possiveis_colunas_unidades = ["Unidades", "Quantidade", "Qtde", "Qtd"]
+    coluna_unidades = next((c for c in possiveis_colunas_unidades if c in df.columns), None)
+    if coluna_unidades:
+        df[coluna_unidades] = (
+            df[coluna_unidades]
+            .astype(str)
+            .str.strip()
+            .replace({"": "1", "-": "1", "–": "1", "—": "1", "nan": "1"}, regex=True)
+            .str.extract(r"(\d+)", expand=False)
+            .fillna("1")
+            .astype(int)
+        )
+    else:
+        df["Unidades"] = 1
+        coluna_unidades = "Unidades"
+
+    st.caption(f"🧩 Coluna de unidades detectada e normalizada: **{coluna_unidades}**") 
 
     # --- MAPEAMENTO PRINCIPAL ---
     col_map = {
@@ -339,25 +358,6 @@ for pacote in df.loc[mask_pacotes, "Origem_Pacote"].unique():
     soma_filhas = filhos["Tarifa_Venda"].sum() + filhos["Tarifa_Envio"].sum()
     tarifa_pai = pai["Tarifa_Venda"].sum() + pai["Tarifa_Envio"].sum()
     df.loc[df["Origem_Pacote"] == pacote, "Tarifa_Validada_ML"] = "✔️" if abs(soma_filhas - tarifa_pai) < 1 else "❌"
-                        
-    # === COLUNA DE UNIDADES ===
-    possiveis_colunas_unidades = ["Unidades", "Quantidade", "Qtde", "Qtd"]
-    coluna_unidades = next((c for c in possiveis_colunas_unidades if c in df.columns), None)
-    if coluna_unidades:
-        df[coluna_unidades] = (
-            df[coluna_unidades]
-            .astype(str)
-            .str.strip()
-            .replace({"": "1", "-": "1", "–": "1", "—": "1", "nan": "1"}, regex=True)
-            .str.extract(r"(\d+)", expand=False)
-            .fillna("1")
-            .astype(int)
-        )
-    else:
-        df["Unidades"] = 1
-        coluna_unidades = "Unidades"
-
-    st.caption(f"🧩 Coluna de unidades detectada e normalizada: **{coluna_unidades}**") 
 
     # === CONVERSÕES ===
     for c in ["Valor_Venda", "Valor_Recebido", "Tarifa_Venda", "Tarifa_Envio", "Cancelamentos", "Preco_Unitario"]:
