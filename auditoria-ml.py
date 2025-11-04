@@ -732,12 +732,12 @@ with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
     df_export.to_excel(writer, index=False, sheet_name="Auditoria", freeze_panes=(1, 0))
 output.seek(0)
 
-    st.download_button(
-        label="⬇️ Baixar Relatório XLSX (colunas principais e financeiras)",
-        data=output,
-        file_name=f"Auditoria_ML_{datetime.now().strftime('%d-%m-%Y_%H-%M-%S')}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
+st.download_button(
+    label="⬇️ Baixar Relatório XLSX (colunas principais e financeiras)",
+    data=output,
+    file_name=f"Auditoria_ML_{datetime.now().strftime('%d-%m-%Y_%H-%M-%S')}.xlsx",
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+)
 
 else:
     st.info("Envie o arquivo Excel de vendas para iniciar a análise.")
