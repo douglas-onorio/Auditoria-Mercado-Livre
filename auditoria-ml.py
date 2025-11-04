@@ -739,7 +739,16 @@ st.download_button(
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 )
 
-else:
+# === CASO NENHUM ARQUIVO TENHA SIDO ENVIADO ===
+else_block = False
+try:
+    if "uploaded_file" in locals() and uploaded_file:
+        else_block = True
+except:
+    pass
+
+if not else_block:
     st.info("Envie o arquivo Excel de vendas para iniciar a análise.")
+
 
 
