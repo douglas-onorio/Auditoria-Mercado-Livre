@@ -699,108 +699,114 @@ if uploaded_file and df is not None:
     else:
         st.warning("⚠️ Nenhuma coluna de tipo de anúncio encontrada no arquivo enviado.")
 
-    # === ANÁLISE ANALÍTICA DE MARGEM POR ITEM DE PACOTE ===
-    st.markdown("---")
-    st.subheader("📦 Margem Analítica por Item de Pacote")
+# === ANÁLISE ANALÍTICA DE MARGEM POR ITEM DE PACOTE ===
+st.markdown("---")
+st.subheader("📦 Margem Analítica por Item de Pacote")
 
-    # Correção de robustez: Filtra apenas linhas que são strings E terminam com -PACOTE.
-    # Isso resolve problemas de tipagem mista (str e None/NaN) no pandas.
-# === CORREÇÃO DE FILTRO ===
-# Detecta todas as linhas-filhas que pertencem a pacotes processados
+# Filtra apenas os itens que são filhos de pacotes (Origem_Pacote termina em "-PACOTE")
 mask_filhos = df["Origem_Pacote"].apply(lambda x: isinstance(x, str) and "-PACOTE" in x)
 df_pacotes_itens = df[mask_filhos].copy()
 
-if not df_pacotes_itens.empty:
-    analitico = []
+try:
+    if not df_pacotes_itens.empty:
+        analitico = []
 
-    # Itera por cada pacote identificado (ex: "2000009496621409-PACOTE")
-    for pacote_id in df_pacotes_itens["Origem_Pacote"].unique():
-        grupo = df[df["Origem_Pacote"] == pacote_id]
-        if grupo.empty:
-            continue
+        for pacote_id in df_pacotes_itens["Origem_Pacote"].unique():
+            grupo = df[df["Origem_Pacote"] == pacote_id]
+            if grupo.empty:
+                continue
 
-        # Encontra a linha principal (pai)
-        venda_pai = pacote_id.replace("-PACOTE", "")
-        linha_pai = df[df["Venda"].astype(str) == venda_pai]
-        if linha_pai.empty:
-            continue
+            # Localiza a linha principal (pai)
+            venda_pai = pacote_id.replace("-PACOTE", "")
+            linha_pai = df[df["Venda"].astype(str) == venda_pai]
+            if linha_pai.empty:
+                continue
 
-        # Valores totais da venda principal
-        total_venda = float(linha_pai["Valor_Venda"].iloc[0])
-        total_frete = float(linha_pai["Tarifa_Envio"].iloc[0])
-        total_tarifa = float(linha_pai["Tarifa_Venda"].iloc[0])
-        total_custofiscal = float(linha_pai.get("Custo_Fiscal", pd.Series([0.0])).iloc[0])
-        total_embalagem = float(linha_pai.get("Custo_Embalagem", pd.Series([0.0])).iloc[0])
+            # Coleta os totais da venda pai
+            total_venda = float(linha_pai["Valor_Venda"].iloc[0] or 0)
+            total_frete = float(linha_pai["Tarifa_Envio"].iloc[0] or 0)
+            total_tarifa = float(linha_pai["Tarifa_Venda"].iloc[0] or 0)
+            total_custofiscal = float(linha_pai.get("Custo_Fiscal", pd.Series([0.0])).iloc[0])
+            total_embalagem = float(linha_pai.get("Custo_Embalagem", pd.Series([0.0])).iloc[0])
 
-        # Soma de valores dos itens (para rateio proporcional)
-        soma_valores_itens = grupo["Valor_Venda"].sum()
-        if soma_valores_itens == 0:
-            continue
+            # Evita divisão por zero
+            soma_valores_itens = grupo["Valor_Venda"].sum()
+            if soma_valores_itens <= 0:
+                continue
 
-        num_itens = len(grupo)
+            num_itens = max(len(grupo), 1)
 
-        for _, item in grupo.iterrows():
-            proporcao = item["Valor_Venda"] / soma_valores_itens
-            tarifa_prop = round(total_tarifa * proporcao, 2)
-            frete_prop = round(total_frete * proporcao, 2)
-            fiscal_prop = round(total_custofiscal * proporcao, 2)
-            embalagem_prop = round(total_embalagem / num_itens, 2)
+            for _, item in grupo.iterrows():
+                valor_venda = float(item.get("Valor_Venda", 0) or 0)
+                proporcao = valor_venda / soma_valores_itens
 
-            custo_prod = float(item.get("Custo_Produto", 0) or 0) * float(item.get(coluna_unidades, 1) or 1)
-            lucro_liquido = (
-                item["Valor_Venda"] - tarifa_prop - frete_prop - fiscal_prop - embalagem_prop - custo_prod
+                tarifa_prop = round(total_tarifa * proporcao, 2)
+                frete_prop = round(total_frete * proporcao, 2)
+                fiscal_prop = round(total_custofiscal * proporcao, 2)
+                embalagem_prop = round(total_embalagem / num_itens, 2)
+
+                custo_prod = float(item.get("Custo_Produto", 0) or 0) * float(item.get(coluna_unidades, 1) or 1)
+                lucro_liquido = (
+                    valor_venda - tarifa_prop - frete_prop - fiscal_prop - embalagem_prop - custo_prod
+                )
+                margem_item = round((lucro_liquido / valor_venda) * 100, 2) if valor_venda > 0 else 0
+
+                analitico.append({
+                    "Pacote": pacote_id,
+                    "Venda_Pai": venda_pai,
+                    "Produto": item["Produto"],
+                    "SKU": item["SKU"],
+                    "Unidades": item[coluna_unidades],
+                    "Valor_Venda_Item": valor_venda,
+                    "Tarifa_Prop": tarifa_prop,
+                    "Frete_Prop": frete_prop,
+                    "Fiscal_Prop": fiscal_prop,
+                    "Embalagem_Prop": embalagem_prop,
+                    "Custo_Produto_Total": round(custo_prod, 2),
+                    "Lucro_Liquido_Item": round(lucro_liquido, 2),
+                    "Margem_Item_%": margem_item
+                })
+
+        # Constrói o DataFrame final
+        if analitico:
+            df_analitico = pd.DataFrame(analitico)
+            cols_monetarias = [
+                "Valor_Venda_Item", "Tarifa_Prop", "Frete_Prop", "Fiscal_Prop",
+                "Embalagem_Prop", "Custo_Produto_Total", "Lucro_Liquido_Item"
+            ]
+
+            df_display = df_analitico.copy()
+            for col in cols_monetarias:
+                if col in df_display.columns:
+                    df_display[col] = df_display[col].apply(
+                        lambda x: f"R$ {x:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                    )
+            df_display["Margem_Item_%"] = df_display["Margem_Item_%"].apply(
+                lambda x: f"{x:.2f}%".replace(",", "X").replace(".", ",").replace("X", ".")
             )
-            margem_item = round((lucro_liquido / item["Valor_Venda"]) * 100, 2) if item["Valor_Venda"] > 0 else 0
 
-            analitico.append({
-                "Pacote": pacote_id,
-                "Venda_Pai": venda_pai,
-                "Produto": item["Produto"],
-                "SKU": item["SKU"],
-                "Unidades": item[coluna_unidades],
-                "Valor_Venda_Item": item["Valor_Venda"],
-                "Tarifa_Prop": tarifa_prop,
-                "Frete_Prop": frete_prop,
-                "Fiscal_Prop": fiscal_prop,
-                "Embalagem_Prop": embalagem_prop,
-                "Custo_Produto_Total": round(custo_prod, 2),
-                "Lucro_Liquido_Item": round(lucro_liquido, 2),
-                "Margem_Item_%": margem_item
-            })
+            st.dataframe(df_display, use_container_width=True, height=400)
 
+            # Exportação Excel
+            output_analitico = BytesIO()
+            with pd.ExcelWriter(output_analitico, engine="xlsxwriter") as writer:
+                df_analitico.to_excel(writer, index=False, sheet_name="Margem_Itens_Pacotes")
+            output_analitico.seek(0)
 
-        df_analitico = pd.DataFrame(analitico)
-
-        # Formatação de colunas monetárias para exibição no Streamlit
-        cols_monetarias = ["Valor_Venda_Item", "Tarifa_Prop", "Frete_Prop", "Fiscal_Prop", "Embalagem_Prop", "Custo_Produto_Total", "Lucro_Liquido_Item"]
-        df_display = df_analitico.copy() # Cópia para aplicar a formatação de exibição
-        
-        for col in cols_monetarias:
-            if col in df_display.columns:
-                 # Usando formatação de texto para exibir no dataframe (padrão BR)
-                 df_display[col] = df_display[col].apply(lambda x: f"R$ {x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-
-        # Adiciona a formatação de %
-        df_display["Margem_Item_%"] = df_display["Margem_Item_%"].apply(lambda x: f"{x:.2f}%".replace(",", "X").replace(".", ",").replace("X", "."))
-
-        st.dataframe(df_display, use_container_width=True, height=400)
-
-        # === DOWNLOADS SEPARADOS ===
-        output_analitico = BytesIO()
-        with pd.ExcelWriter(output_analitico, engine="xlsxwriter") as writer:
-            # Cria um DataFrame limpo para o Excel (sem a formatação de R$)
-            df_analitico.to_excel(writer, index=False, sheet_name="Margem_Itens_Pacotes")
-        output_analitico.seek(0)
-
-        st.download_button(
-            label="⬇️ Exportar Análise Analítica (Somente Pacotes)",
-            data=output_analitico,
-            file_name=f"Margem_Itens_Pacotes_{datetime.now().strftime('%d-%m-%Y_%H-%M-%S')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
-
+            st.download_button(
+                label="⬇️ Exportar Análise Analítica (Somente Pacotes)",
+                data=output_analitico,
+                file_name=f"Margem_Itens_Pacotes_{datetime.now().strftime('%d-%m-%Y_%H-%M-%S')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        else:
+            st.info("Nenhum pacote com múltiplos produtos encontrado para análise detalhada.")
     else:
         st.info("Nenhum pacote com múltiplos produtos encontrado para análise detalhada.")
+
+except Exception as e:
+    st.error(f"❌ Erro ao processar análise de pacotes: {e}")
+
         
     # === ALERTA DE PRODUTO ===
     st.markdown("---")
