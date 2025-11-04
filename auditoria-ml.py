@@ -705,91 +705,69 @@ if uploaded_file and df is not None:
 
     # Correção de robustez: Filtra apenas linhas que são strings E terminam com -PACOTE.
     # Isso resolve problemas de tipagem mista (str e None/NaN) no pandas.
-    mask_filhos = df["Origem_Pacote"].apply(lambda x: isinstance(x, str) and x.endswith("-PACOTE"))
-    df_pacotes_itens = df[mask_filhos].copy()
+# === CORREÇÃO DE FILTRO ===
+# Detecta todas as linhas-filhas que pertencem a pacotes processados
+mask_filhos = df["Origem_Pacote"].apply(lambda x: isinstance(x, str) and "-PACOTE" in x)
+df_pacotes_itens = df[mask_filhos].copy()
 
+if not df_pacotes_itens.empty:
+    analitico = []
 
-    if not df_pacotes_itens.empty:
-        analitico = []
-        # Usando .unique() na coluna de Origem_Pacote (e.g., "12345-PACOTE")
-        for pacote_id in df_pacotes_itens["Origem_Pacote"].unique():
-            # Filtra todos os itens que pertencem a este pacote
-            # Filtra linhas de pacotes (filhas) — mais robusto contra variações de texto
-            df_pacotes_itens = df[
-            df["Origem_Pacote"].notna() &
-            df["Origem_Pacote"].astype(str).str.contains("-PACOTE", case=False)
-            ].copy()
-            if grupo.empty:
-                continue
+    # Itera por cada pacote identificado (ex: "2000009496621409-PACOTE")
+    for pacote_id in df_pacotes_itens["Origem_Pacote"].unique():
+        grupo = df[df["Origem_Pacote"] == pacote_id]
+        if grupo.empty:
+            continue
 
-            # Busca a linha principal (pai) do pacote usando o número da venda
-            venda_pai = pacote_id.replace("-PACOTE", "")
-            linha_pai = df[df["Venda"].astype(str) == venda_pai]
+        # Encontra a linha principal (pai)
+        venda_pai = pacote_id.replace("-PACOTE", "")
+        linha_pai = df[df["Venda"].astype(str) == venda_pai]
+        if linha_pai.empty:
+            continue
 
-            if linha_pai.empty:
-                continue
+        # Valores totais da venda principal
+        total_venda = float(linha_pai["Valor_Venda"].iloc[0])
+        total_frete = float(linha_pai["Tarifa_Envio"].iloc[0])
+        total_tarifa = float(linha_pai["Tarifa_Venda"].iloc[0])
+        total_custofiscal = float(linha_pai.get("Custo_Fiscal", pd.Series([0.0])).iloc[0])
+        total_embalagem = float(linha_pai.get("Custo_Embalagem", pd.Series([0.0])).iloc[0])
 
-            # Captura os valores totais da linha pai para rateio
-            # Usamos .iloc[0] para pegar a primeira (e única) linha do DataFrame 'linha_pai'
-            # Usamos .get() com fallback para 0.0 para maior segurança
-            total_venda = float(linha_pai["Valor_Venda"].iloc[0])
-            total_frete = float(linha_pai["Tarifa_Envio"].iloc[0])
-            total_tarifa = float(linha_pai["Tarifa_Venda"].iloc[0])
-            # Tratamento para colunas que podem não existir no df (caso Lucro/Custo não tenham sido calculados)
-            total_custofiscal = float(linha_pai.get("Custo_Fiscal", pd.Series([0.0])).iloc[0]) if "Custo_Fiscal" in linha_pai.columns else 0.0
-            total_embalagem = float(linha_pai.get("Custo_Embalagem", pd.Series([0.0])).iloc[0]) if "Custo_Embalagem" in linha_pai.columns else 0.0
+        # Soma de valores dos itens (para rateio proporcional)
+        soma_valores_itens = grupo["Valor_Venda"].sum()
+        if soma_valores_itens == 0:
+            continue
 
-            # Soma dos Valores de Venda dos itens para calcular a proporção
-            soma_valores_itens = grupo["Valor_Venda"].sum()
-            if soma_valores_itens == 0:
-                continue
+        num_itens = len(grupo)
 
-            num_itens = len(grupo) # Contagem de itens para ratear custos fixos (embalagem)
+        for _, item in grupo.iterrows():
+            proporcao = item["Valor_Venda"] / soma_valores_itens
+            tarifa_prop = round(total_tarifa * proporcao, 2)
+            frete_prop = round(total_frete * proporcao, 2)
+            fiscal_prop = round(total_custofiscal * proporcao, 2)
+            embalagem_prop = round(total_embalagem / num_itens, 2)
 
-            for _, item in grupo.iterrows():
-                # Proporção baseada no valor de venda do item em relação ao total do pacote
-                proporcao = item["Valor_Venda"] / soma_valores_itens
-                
-                # Rateio dos Custos do Pacote Pai com base na Proporção do Valor de Venda
-                tarifa_prop = round(total_tarifa * proporcao, 2)
-                frete_prop = round(total_frete * proporcao, 2)
-                fiscal_prop = round(total_custofiscal * proporcao, 2)
-                
-                # Rateio do Custo de Embalagem (Custo Fixo por Venda) - dividido pelo número de itens no pacote
-                embalagem_prop = round(total_embalagem / num_itens, 2)
+            custo_prod = float(item.get("Custo_Produto", 0) or 0) * float(item.get(coluna_unidades, 1) or 1)
+            lucro_liquido = (
+                item["Valor_Venda"] - tarifa_prop - frete_prop - fiscal_prop - embalagem_prop - custo_prod
+            )
+            margem_item = round((lucro_liquido / item["Valor_Venda"]) * 100, 2) if item["Valor_Venda"] > 0 else 0
 
-                # Custo do Produto: Custo unitário (do Sheets) * Unidades vendidas do item
-                # Usamos a coluna de unidades correta: coluna_unidades
-                custo_prod = float(item.get("Custo_Produto", 0) or 0) * float(item.get(coluna_unidades, 1) or 1)
-                
-                # Lucro Líquido do Item (Usando valores rateados)
-                lucro_liquido = (
-                    item["Valor_Venda"]
-                    - tarifa_prop
-                    - frete_prop
-                    - fiscal_prop
-                    - embalagem_prop
-                    - custo_prod
-                )
-                
-                # Margem
-                margem_item = round((lucro_liquido / item["Valor_Venda"]) * 100, 2) if item["Valor_Venda"] > 0 else 0
+            analitico.append({
+                "Pacote": pacote_id,
+                "Venda_Pai": venda_pai,
+                "Produto": item["Produto"],
+                "SKU": item["SKU"],
+                "Unidades": item[coluna_unidades],
+                "Valor_Venda_Item": item["Valor_Venda"],
+                "Tarifa_Prop": tarifa_prop,
+                "Frete_Prop": frete_prop,
+                "Fiscal_Prop": fiscal_prop,
+                "Embalagem_Prop": embalagem_prop,
+                "Custo_Produto_Total": round(custo_prod, 2),
+                "Lucro_Liquido_Item": round(lucro_liquido, 2),
+                "Margem_Item_%": margem_item
+            })
 
-                analitico.append({
-                    "Pacote": pacote_id,
-                    "Venda_Pai": venda_pai,
-                    "Produto": item["Produto"],
-                    "SKU": item["SKU"],
-                    "Unidades": item[coluna_unidades],
-                    "Valor_Venda_Item": item["Valor_Venda"],
-                    "Tarifa_Prop": tarifa_prop,
-                    "Frete_Prop": frete_prop,
-                    "Fiscal_Prop": fiscal_prop,
-                    "Embalagem_Prop": embalagem_prop,
-                    "Custo_Produto_Total": round(custo_prod, 2),
-                    "Lucro_Liquido_Item": round(lucro_liquido, 2),
-                    "Margem_Item_%": margem_item
-                })
 
         df_analitico = pd.DataFrame(analitico)
 
