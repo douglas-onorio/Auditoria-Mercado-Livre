@@ -821,6 +821,10 @@ else:
     # === ALERTA DE PRODUTO ===
     st.markdown("---")
     st.subheader("🚨 Produtos Fora da Margem")
+    # === GARANTE EXISTÊNCIA DA COLUNA STATUS ===
+    if "Status" not in df.columns:
+      df["Status"] = ""
+
     df_alerta = df[df["Status"] == "⚠️ Acima da Margem"].copy()
     if not df_alerta.empty:
         produto_critico = (
