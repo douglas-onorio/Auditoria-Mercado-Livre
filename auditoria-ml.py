@@ -552,10 +552,21 @@ if "Estado" in df.columns:
 # === EXCLUI CANCELAMENTOS DO CÁLCULO ===
 df_validas = df[df["Status"] != "🟦 Cancelamento Correto"]
 
-# === RESUMO ===
+# === MÉTRICAS FINAIS ===
+if custo_carregado:
+    lucro_total = df_validas["Lucro_Liquido"].sum()
+    prejuizo_total = abs(df_validas.loc[df_validas["Lucro_Liquido"] < 0, "Lucro_Liquido"].sum())
+    margem_media = df_validas["Margem_Final_%"].mean()
+else:
+    lucro_total = df_validas["Lucro_Real"].sum()
+    prejuizo_total = abs(df_validas.loc[df_validas["Lucro_Real"] < 0, "Lucro_Real"].sum())
+    margem_media = df_validas["Margem_Liquida_%"].mean()
+
+receita_total = df_validas["Valor_Venda"].sum()
 total_vendas = len(df)
 fora_margem = (df["Status"] == "⚠️ Acima da Margem").sum()
 cancelamentos = (df["Status"] == "🟦 Cancelamento Correto").sum()
+
 
     if custo_carregado:
         lucro_total = df_validas["Lucro_Liquido"].sum()
