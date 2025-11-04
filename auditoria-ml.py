@@ -225,92 +225,120 @@ if uploaded_file:
             # Renomeia apenas o que consta no mapeamento
     df.rename(columns={c: col_map[c] for c in col_map if c in df.columns}, inplace=True)
 
-    # === REDISTRIBUI PACOTES (COM DETALHAMENTO DE TARIFAS) ===
-    import re
+# === REDISTRIBUI PACOTES (COM DETALHAMENTO DE TARIFAS E FRETE POR UNIDADE) ===
+import re
 
-    def calcular_custo_fixo(preco_unit):
-        if preco_unit < 12.5:
-            return round(preco_unit * 0.5, 2)
-        elif preco_unit < 30:
-            return 6.25
-        elif preco_unit < 50:
-            return 6.50
-        elif preco_unit < 79:
-            return 6.75
-        else:
-            return 0.0
+def calcular_custo_fixo(preco_unit):
+    if preco_unit < 12.5:
+        return round(preco_unit * 0.5, 2)
+    elif preco_unit < 30:
+        return 6.25
+    elif preco_unit < 50:
+        return 6.50
+    elif preco_unit < 79:
+        return 6.75
+    else:
+        return 0.0
 
-    def calcular_percentual(tipo_anuncio):
-        tipo = str(tipo_anuncio).strip().lower()
-        if "premium" in tipo:
-            return 0.17
-        elif "clássico" in tipo or "classico" in tipo:
-            return 0.12
+def calcular_percentual(tipo_anuncio):
+    tipo = str(tipo_anuncio).strip().lower()
+    if "premium" in tipo:
+        return 0.17
+    elif "clássico" in tipo or "classico" in tipo:
         return 0.12
+    return 0.12
 
-    for col in ["Tarifa_Percentual_%", "Tarifa_Fixa_R$", "Tarifa_Total_R$", "Origem_Pacote"]:
-        if col not in df.columns:
-            df[col] = None
+# Garante que todas as colunas necessárias existam
+for col in ["Tarifa_Percentual_%", "Tarifa_Fixa_R$", "Tarifa_Total_R$", "Origem_Pacote", "Tarifa_Envio"]:
+    if col not in df.columns:
+        df[col] = None
 
-    for i, row in df.iterrows():
-        estado = str(row.get("Estado", ""))
-        match = re.search(r"Pacote de (\d+) produtos", estado, flags=re.IGNORECASE)
-        if not match:
-            continue
+for i, row in df.iterrows():
+    estado = str(row.get("Estado", ""))
+    match = re.search(r"Pacote de (\d+) produtos", estado, flags=re.IGNORECASE)
+    if not match:
+        continue
 
-        qtd = int(match.group(1))
-        subset = df.iloc[i + 1 : i + 1 + qtd].copy()
-        if subset.empty:
-            continue
+    qtd = int(match.group(1))
+    subset = df.iloc[i + 1 : i + 1 + qtd].copy()
+    if subset.empty:
+        continue
 
-        total_venda = float(row.get("Valor_Venda", 0) or 0)
-        total_recebido = float(row.get("Valor_Recebido", 0) or 0)
+    total_venda = float(row.get("Valor_Venda", 0) or 0)
+    total_recebido = float(row.get("Valor_Recebido", 0) or 0)
 
-        col_preco_unitario = (
-            "Preco_Unitario" if "Preco_Unitario" in subset.columns
-            else "Preço unitário de venda do anúncio (BRL)"
-        )
-        subset["Preco_Unitario_Item"] = pd.to_numeric(
-            subset[col_preco_unitario], errors="coerce"
-        ).fillna(0)
+    # 🆕 captura o valor do frete do pacote (caso exista)
+    frete_total = 0.0
+    for col in ["Tarifas de envio (BRL)", "Custo de envio (BRL)", "Envio (BRL)", "Frete (BRL)"]:
+        if col in df.columns:
+            frete_total = float(row.get(col, 0) or 0)
+            break
 
-        soma_precos = subset["Preco_Unitario_Item"].sum() or qtd
+    col_preco_unitario = (
+        "Preco_Unitario" if "Preco_Unitario" in subset.columns
+        else "Preço unitário de venda do anúncio (BRL)"
+    )
+    subset["Preco_Unitario_Item"] = pd.to_numeric(subset[col_preco_unitario], errors="coerce").fillna(0)
+    soma_precos = subset["Preco_Unitario_Item"].sum() or qtd
 
-        total_tarifas_calc = 0
-        total_recebido_calc = 0
+    total_tarifas_calc = 0
+    total_recebido_calc = 0
+    total_frete_calc = 0
 
-        for j in subset.index:
-            preco_unit = float(subset.loc[j, "Preco_Unitario_Item"] or 0)
-            tipo_anuncio = subset.loc[j, "Tipo_Anuncio"]
+    # 🧮 total de unidades do pacote
+    total_unidades = subset[coluna_unidades].sum() or 1
 
-            perc = calcular_percentual(tipo_anuncio)
-            custo_fixo = calcular_custo_fixo(preco_unit)
-            tarifa_total = round(preco_unit * perc + custo_fixo, 2)
+    for j in subset.index:
+        preco_unit = float(subset.loc[j, "Preco_Unitario_Item"] or 0)
+        tipo_anuncio = subset.loc[j, "Tipo_Anuncio"]
 
-            proporcao = preco_unit / soma_precos
-            valor_recebido_item = round(total_recebido * proporcao, 2)
+        perc = calcular_percentual(tipo_anuncio)
+        custo_fixo = calcular_custo_fixo(preco_unit)
+        tarifa_total = round(preco_unit * perc + custo_fixo, 2)
 
-            df.loc[j, "Valor_Venda"] = preco_unit
-            df.loc[j, "Valor_Recebido"] = valor_recebido_item
-            df.loc[j, "Tarifa_Venda"] = tarifa_total
-            df.loc[j, "Tarifa_Percentual_%"] = perc * 100
-            df.loc[j, "Tarifa_Fixa_R$"] = custo_fixo
-            df.loc[j, "Tarifa_Total_R$"] = tarifa_total
-            df.loc[j, "Tarifa_Envio"] = 0.0
-            df.loc[j, "Origem_Pacote"] = f"{row['Venda']}-PACOTE"
+        proporcao = preco_unit / soma_precos
+        valor_recebido_item = round(total_recebido * proporcao, 2)
 
-            total_tarifas_calc += tarifa_total
-            total_recebido_calc += valor_recebido_item
+        # 🆕 redistribui frete proporcional por unidade
+        unidades_item = subset.loc[j, coluna_unidades]
+        frete_item = round(frete_total * (unidades_item / total_unidades), 2)
 
-        df.loc[i, "Estado"] = f"{estado} (processado)"
-        df.loc[i, "Tarifa_Venda"] = round(total_tarifas_calc, 2)
-        df.loc[i, "Tarifa_Envio"] = 0.0
-        df.loc[i, "Valor_Recebido"] = total_recebido
-        df.loc[i, "Origem_Pacote"] = "PACOTE"
-        df.loc[i, "Lucro_Real"] = 0
-        df.loc[i, "Lucro_Liquido"] = 0
-        df.loc[i, "Margem_Final_%"] = 0
-        df.loc[i, "Markup_%"] = 0
+        # atualiza DataFrame
+        df.loc[j, "Valor_Venda"] = preco_unit
+        df.loc[j, "Valor_Recebido"] = valor_recebido_item
+        df.loc[j, "Tarifa_Venda"] = tarifa_total
+        df.loc[j, "Tarifa_Percentual_%"] = perc * 100
+        df.loc[j, "Tarifa_Fixa_R$"] = custo_fixo
+        df.loc[j, "Tarifa_Total_R$"] = tarifa_total
+        df.loc[j, "Tarifa_Envio"] = frete_item
+        df.loc[j, "Origem_Pacote"] = f"{row['Venda']}-PACOTE"
+
+        total_tarifas_calc += tarifa_total
+        total_recebido_calc += valor_recebido_item
+        total_frete_calc += frete_item
+
+    # 🧾 atualiza linha principal do pacote
+    df.loc[i, "Estado"] = f"{estado} (processado)"
+    df.loc[i, "Tarifa_Venda"] = round(total_tarifas_calc, 2)
+    df.loc[i, "Tarifa_Envio"] = round(frete_total, 2)
+    df.loc[i, "Valor_Recebido"] = total_recebido
+    df.loc[i, "Origem_Pacote"] = "PACOTE"
+    df.loc[i, "Lucro_Real"] = 0
+    df.loc[i, "Lucro_Liquido"] = 0
+    df.loc[i, "Margem_Final_%"] = 0
+    df.loc[i, "Markup_%"] = 0
+
+# 🆕 adiciona coluna de validação automática (bate pacotes com ML)
+df["Tarifa_Validada_ML"] = ""
+mask_pacotes = df["Origem_Pacote"].notna()
+for pacote in df.loc[mask_pacotes, "Origem_Pacote"].unique():
+    if not isinstance(pacote, str) or not pacote.endswith("-PACOTE"):
+        continue
+    filhos = df[df["Origem_Pacote"] == pacote]
+    pai = df[df["Venda"].astype(str).eq(pacote.split("-")[0])]
+    soma_filhas = filhos["Tarifa_Venda"].sum() + filhos["Tarifa_Envio"].sum()
+    tarifa_pai = pai["Tarifa_Venda"].sum() + pai["Tarifa_Envio"].sum()
+    df.loc[df["Origem_Pacote"] == pacote, "Tarifa_Validada_ML"] = "✔️" if abs(soma_filhas - tarifa_pai) < 1 else "❌"
                         
     # === COLUNA DE UNIDADES ===
     possiveis_colunas_unidades = ["Unidades", "Quantidade", "Qtde", "Qtd"]
