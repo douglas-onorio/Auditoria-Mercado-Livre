@@ -259,6 +259,28 @@ if uploaded_file and df is not None:
     # Renomeia apenas o que consta no mapeamento
     df.rename(columns={c: col_map[c] for c in col_map if c in df.columns}, inplace=True)
 
+    # === AJUSTE VENDA (MOVIDO PARA CÁ: ESSENCIAL PARA IDENTIFICAÇÃO DE PACOTES) ===
+    def formatar_venda(valor):
+        if pd.isna(valor):
+            return ""
+        return re.sub(r"[^\d]", "", str(valor))
+    df["Venda"] = df["Venda"].apply(formatar_venda)
+    
+    # === AJUSTE SKU (MOVIDO PARA CÁ: ESSENCIAL PARA DADOS LIMPOS NOS ITENS FILHOS) ===
+    def limpar_sku(valor):
+        if pd.isna(valor):
+            return ""
+        valor = str(valor).strip()
+        # Mantém hífens (para pacotes) e remove apenas outros caracteres
+        valor = re.sub(r"[^\d\-]", "", valor)
+        # Evita limpar SKUs compostos (como 3888-3937)
+        if "-" not in valor:
+            valor = valor.lstrip("0") or "0"
+        return valor
+
+    if "SKU" in df.columns:
+        df["SKU"] = df["SKU"].apply(limpar_sku)
+
     # === REDISTRIBUI PACOTES (COM DETALHAMENTO DE TARIFAS E FRETE POR UNIDADE) ===
     # import re # Já importado
 
@@ -353,7 +375,8 @@ if uploaded_file and df is not None:
             df.loc[j, "Tarifa_Fixa_R$"] = custo_fixo * unidades_item
             df.loc[j, "Tarifa_Total_R$"] = tarifa_total
             df.loc[j, "Tarifa_Envio"] = frete_item
-            df.loc[j, "Origem_Pacote"] = f"{row['Venda']}-PACOTE"
+            # AGORA A VENDA ESTÁ LIMPA AQUI:
+            df.loc[j, "Origem_Pacote"] = f"{row['Venda']}-PACOTE" 
             df.loc[j, "Valor_Item_Total"] = valor_item_total
 
             total_tarifas_calc += tarifa_total
@@ -399,21 +422,8 @@ if uploaded_file and df is not None:
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0).abs()
 
-    # === AJUSTE SKU ===
-    def limpar_sku(valor):
-        if pd.isna(valor):
-            return ""
-        valor = str(valor).strip()
-        # Mantém hífens (para pacotes) e remove apenas outros caracteres
-        valor = re.sub(r"[^\d\-]", "", valor)
-        # Evita limpar SKUs compostos (como 3888-3937)
-        if "-" not in valor:
-            valor = valor.lstrip("0") or "0"
-        return valor
-
-    if "SKU" in df.columns:
-        df["SKU"] = df["SKU"].apply(limpar_sku)
-
+    # O bloco de limpeza de SKU e Venda foi movido para antes
+    
     # === COMPLETA DADOS DE PACOTES COM SKUs E TÍTULOS AGRUPADOS ===
     for i, row in df.iterrows():
         estado = str(row.get("Estado", ""))
@@ -432,6 +442,7 @@ if uploaded_file and df is not None:
             continue
 
         # Concatena SKUs e títulos dos filhos
+        # OBS: Como o SKU foi limpo ANTES, ele já deve estar ok aqui.
         skus = subset["SKU"].astype(str).replace("nan", "").unique().tolist()
         produtos = subset["Produto"].astype(str).replace("nan", "").unique().tolist()
 
@@ -458,13 +469,6 @@ if uploaded_file and df is not None:
         use_container_width=True,
         height=200
     )
-
-    # === AJUSTE VENDA ===
-    def formatar_venda(valor):
-        if pd.isna(valor):
-            return ""
-        return re.sub(r"[^\d]", "", str(valor))
-    df["Venda"] = df["Venda"].apply(formatar_venda)
 
     # === DATA ===
     df["Data"] = df["Data"].astype(str).str.replace(r"(hs\.?|às)", "", regex=True).str.strip()
@@ -717,8 +721,9 @@ if uploaded_file and df is not None:
             total_venda = float(linha_pai["Valor_Venda"].iloc[0])
             total_frete = float(linha_pai["Tarifa_Envio"].iloc[0])
             total_tarifa = float(linha_pai["Tarifa_Venda"].iloc[0])
-            total_custofiscal = float(linha_pai.get("Custo_Fiscal", pd.Series([0.0])).iloc[0])
-            total_embalagem = float(linha_pai.get("Custo_Embalagem", pd.Series([0.0])).iloc[0])
+            # Tratamento para colunas que podem não existir no df (caso Lucro/Custo não tenham sido calculados)
+            total_custofiscal = float(linha_pai.get("Custo_Fiscal", pd.Series([0.0])).iloc[0]) if "Custo_Fiscal" in linha_pai.columns else 0.0
+            total_embalagem = float(linha_pai.get("Custo_Embalagem", pd.Series([0.0])).iloc[0]) if "Custo_Embalagem" in linha_pai.columns else 0.0
 
             # Soma dos Valores de Venda dos itens para calcular a proporção
             soma_valores_itens = grupo["Valor_Venda"].sum()
