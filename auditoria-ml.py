@@ -498,35 +498,62 @@ if uploaded_file:
     df["Margem_Liquida_%"] = ((df["Lucro_Real"] / df["Valor_Venda"]) * 100).round(2)
 
 
-       # === PLANILHA DE CUSTOS ===
-    custo_carregado = False
-    if not custo_df.empty:
-        try:
-            custo_df["SKU"] = custo_df["SKU"].astype(str).str.strip()
-            df = df.merge(custo_df[["SKU", "Custo_Produto"]], on="SKU", how="left")
-            df["Custo_Produto_Total"] = df["Custo_Produto"].fillna(0) * df[coluna_unidades]
-            df["Lucro_Liquido"] = df["Lucro_Real"] - df["Custo_Produto_Total"]
-            df["Margem_Final_%"] = ((df["Lucro_Liquido"] / df["Valor_Venda"]) * 100).round(2)
-            df["Markup_%"] = ((df["Lucro_Liquido"] / df["Custo_Produto_Total"]) * 100).round(2)
-            custo_carregado = True
-        except Exception as e:
-            st.error(f"Erro ao aplicar custos: {e}")
+# === PLANILHA DE CUSTOS ===
+custo_carregado = False
+if not custo_df.empty:
+    try:
+        custo_df["SKU"] = custo_df["SKU"].astype(str).str.strip()
+        df = df.merge(custo_df[["SKU", "Custo_Produto"]], on="SKU", how="left")
+        df["Custo_Produto_Total"] = df["Custo_Produto"].fillna(0) * df[coluna_unidades]
 
-    # === AJUSTE FINAL: ZERA PACOTES APÓS REDISTRIBUIÇÃO ===
-    if "Estado" in df.columns:
-        mask_pacotes = df["Estado"].str.contains("Pacote de", case=False, na=False)
-        campos_financeiros = [
-            "Lucro_Real", "Lucro_Liquido", "Margem_Liquida_%",
-            "Margem_Final_%", "Markup_%", "Lucro_Bruto",
-            "Custo_Produto_Total"
-        ]
-        for campo in campos_financeiros:
-            if campo in df.columns:
-                df.loc[mask_pacotes, campo] = 0.0
-        df.loc[mask_pacotes, "Status"] = "🔹 Pacote Agrupado (Somente Controle)"
+        # --- Custo Fiscal (multiplicado pela quantidade) ---
+        if "Custo_Fiscal" in df.columns:
+            df["Custo_Fiscal"] = pd.to_numeric(df["Custo_Fiscal"], errors="coerce").fillna(0)
+            df["Custo_Fiscal"] = df["Custo_Fiscal"] * df[coluna_unidades]
+        else:
+            df["Custo_Fiscal"] = 0.0
 
-    # === EXCLUI CANCELAMENTOS DO CÁLCULO ===
-    df_validas = df[df["Status"] != "🟦 Cancelamento Correto"]
+        # --- Custo de Embalagem (fixo por venda, não multiplica) ---
+        if "Custo_Embalagem" not in df.columns:
+            df["Custo_Embalagem"] = 0.0
+        else:
+            df["Custo_Embalagem"] = pd.to_numeric(df["Custo_Embalagem"], errors="coerce").fillna(0)
+
+        # --- Lucro e Margens completas ---
+        df["Lucro_Liquido"] = (
+            df["Lucro_Real"]
+            - df["Custo_Produto_Total"]
+            - df["Custo_Embalagem"]
+            - df["Custo_Fiscal"]
+        )
+
+        df["Margem_Final_%"] = (
+            (df["Lucro_Liquido"] / df["Valor_Venda"].replace(0, np.nan)) * 100
+        ).round(2)
+
+        df["Markup_%"] = (
+            (df["Lucro_Liquido"] / df["Custo_Produto_Total"].replace(0, np.nan)) * 100
+        ).round(2)
+
+        custo_carregado = True
+    except Exception as e:
+        st.error(f"Erro ao aplicar custos: {e}")
+
+# === AJUSTE FINAL: ZERA PACOTES APÓS REDISTRIBUIÇÃO ===
+if "Estado" in df.columns:
+    mask_pacotes = df["Estado"].str.contains("Pacote de", case=False, na=False)
+    campos_financeiros = [
+        "Lucro_Real", "Lucro_Liquido", "Margem_Liquida_%",
+        "Margem_Final_%", "Markup_%", "Lucro_Bruto",
+        "Custo_Produto_Total"
+    ]
+    for campo in campos_financeiros:
+        if campo in df.columns:
+            df.loc[mask_pacotes, campo] = 0.0
+    df.loc[mask_pacotes, "Status"] = "🔹 Pacote Agrupado (Somente Controle)"
+
+# === EXCLUI CANCELAMENTOS DO CÁLCULO ===
+df_validas = df[df["Status"] != "🟦 Cancelamento Correto"]
 
     # === RESUMO ===
     total_vendas = len(df)
