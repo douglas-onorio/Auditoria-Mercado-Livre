@@ -327,6 +327,12 @@ if uploaded_file and df is not None:
         subset = df.iloc[i + 1 : i + 1 + qtd].copy()
         if subset.empty:
             continue
+            
+        # Garante que o ID da Venda Pai é válido antes de prosseguir
+        venda_pai_id = str(row['Venda']).strip()
+        if not venda_pai_id:
+             st.warning(f"⚠️ Aviso: Pacote da venda na linha {i+6} tem N.º de venda inválido/vazio e foi ignorado.")
+             continue
 
         total_venda = float(row.get("Valor_Venda", 0) or 0)
         total_recebido = float(row.get("Valor_Recebido", 0) or 0)
@@ -375,8 +381,7 @@ if uploaded_file and df is not None:
             df.loc[j, "Tarifa_Fixa_R$"] = custo_fixo * unidades_item
             df.loc[j, "Tarifa_Total_R$"] = tarifa_total
             df.loc[j, "Tarifa_Envio"] = frete_item
-            # AGORA A VENDA ESTÁ LIMPA AQUI:
-            df.loc[j, "Origem_Pacote"] = f"{row['Venda']}-PACOTE" 
+            df.loc[j, "Origem_Pacote"] = f"{venda_pai_id}-PACOTE" # ID de venda pai garantido como string e limpo
             df.loc[j, "Valor_Item_Total"] = valor_item_total
 
             total_tarifas_calc += tarifa_total
@@ -397,8 +402,10 @@ if uploaded_file and df is not None:
 
     # === VALIDAÇÃO DOS PACOTES ===
     df["Tarifa_Validada_ML"] = ""
-    mask_pacotes = df["Origem_Pacote"].notna()
-    for pacote in df.loc[mask_pacotes, "Origem_Pacote"].unique():
+    # Filtra apenas linhas que são strings e terminam com -PACOTE
+    mask_pacotes_filhos = df["Origem_Pacote"].apply(lambda x: isinstance(x, str) and x.endswith("-PACOTE"))
+    
+    for pacote in df.loc[mask_pacotes_filhos, "Origem_Pacote"].unique():
         if not isinstance(pacote, str):
             continue
             
@@ -696,8 +703,11 @@ if uploaded_file and df is not None:
     st.markdown("---")
     st.subheader("📦 Margem Analítica por Item de Pacote")
 
-    # Filtra apenas linhas pertencentes a pacotes filhos (que têm Origem_Pacote preenchido com ID-PACOTE)
-    df_pacotes_itens = df[df["Origem_Pacote"].astype(str).str.endswith("-PACOTE")].copy()
+    # Correção de robustez: Filtra apenas linhas que são strings E terminam com -PACOTE.
+    # Isso resolve problemas de tipagem mista (str e None/NaN) no pandas.
+    mask_filhos = df["Origem_Pacote"].apply(lambda x: isinstance(x, str) and x.endswith("-PACOTE"))
+    df_pacotes_itens = df[mask_filhos].copy()
+
 
     if not df_pacotes_itens.empty:
         analitico = []
