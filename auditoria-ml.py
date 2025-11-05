@@ -550,8 +550,7 @@ if uploaded_file and df is not None:
         try:
             custo_df["SKU"] = custo_df["SKU"].astype(str).str.strip()
             df = df.merge(custo_df[["SKU", "Custo_Produto"]], on="SKU", how="left")
-            # --- Ajuste SKU agrupado real ---
-    df["Custo_Produto_Total"] = df["SKU"].apply(lambda x: calcular_custo_sku(str(x))) * df[coluna_unidades]
+            df["Custo_Produto_Total"] = df["Custo_Produto"].fillna(0) * df[coluna_unidades]
 
             # --- Custo Fiscal e Embalagem ---
             # O custo fiscal já foi calculado sobre Valor_Venda (total), mantendo assim.
