@@ -6,6 +6,7 @@ from io import BytesIO
 import re
 import os
 from pathlib import Path
+from sku_utils import aplicar_custos
 import tempfile
 import numpy as np # Adicionado: necessário para usar np.nan no cálculo das margens
 
@@ -56,6 +57,7 @@ from google.oauth2.service_account import Credentials
 # from datetime import datetime # Já importado
 # import streamlit as st # Já importado
 import json
+from sku_utils import aplicar_custos
 
 st.subheader("💰 Custos de Produtos (Google Sheets)")
 
@@ -549,8 +551,9 @@ if uploaded_file and df is not None:
     if not custo_df.empty:
         try:
             custo_df["SKU"] = custo_df["SKU"].astype(str).str.strip()
-            df = df.merge(custo_df[["SKU", "Custo_Produto"]], on="SKU", how="left")
-            df["Custo_Produto_Total"] = df["Custo_Produto"].fillna(0) * df[coluna_unidades]
+
+            df = aplicar_custos(df, custo_df, coluna_unidades)
+
 
             # --- Custo Fiscal e Embalagem ---
             # O custo fiscal já foi calculado sobre Valor_Venda (total), mantendo assim.
