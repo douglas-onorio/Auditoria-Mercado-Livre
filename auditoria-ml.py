@@ -544,39 +544,56 @@ if uploaded_file and df is not None:
         df["Lucro_Bruto"] - (df["Custo_Embalagem"] + df["Custo_Fiscal"])
     ).round(2)
 
-    # === PLANILHA DE CUSTOS (SEGUNDO BLOCO DE CÁLCULO) ===
-    custo_carregado = False
-    if not custo_df.empty:
-        try:
-            custo_df["SKU"] = custo_df["SKU"].astype(str).str.strip()
-            df = df.merge(custo_df[["SKU", "Custo_Produto"]], on="SKU", how="left")
-            df["Custo_Produto_Total"] = df["Custo_Produto"].fillna(0) * df[coluna_unidades]
+# === PLANILHA DE CUSTOS (SEGUNDO BLOCO DE CÁLCULO) ===
+custo_carregado = False
+if not custo_df.empty:
+    try:
+        # Normaliza SKU no df de custos
+        custo_df["SKU"] = custo_df["SKU"].astype(str).str.strip()
+        mapa_custos = dict(zip(custo_df["SKU"], custo_df["Custo_Produto"]))
 
-            # --- Custo Fiscal e Embalagem ---
-            # O custo fiscal já foi calculado sobre Valor_Venda (total), mantendo assim.
-            if "Custo_Fiscal" not in df.columns:
-                 df["Custo_Fiscal"] = 0.0
-            
-            if "Custo_Embalagem" not in df.columns:
-                 df["Custo_Embalagem"] = 0.0
-            else:
-                 df["Custo_Embalagem"] = pd.to_numeric(df["Custo_Embalagem"], errors="coerce").fillna(0)
+        # --- NOVA LÓGICA: KITS COMPOSTOS ---
+        def calcular_custo_sku(sku):
+            """Retorna o custo total de um SKU, somando os custos dos componentes se for um kit."""
+            try:
+                partes = str(sku).split("-")
+                if len(partes) > 1:
+                    # SKU composto → soma os custos de cada SKU
+                    custos = [mapa_custos.get(p.strip(), 0) for p in partes]
+                    return sum(custos)
+                else:
+                    # SKU simples → custo direto
+                    return mapa_custos.get(str(sku).strip(), 0)
+            except Exception:
+                return 0.0
 
-            # --- Lucro e Margens completas ---
-            # Lucro Líquido = Lucro Real (já com fiscal/embalagem) - Custo do Produto Total
-            df["Lucro_Liquido"] = (df["Lucro_Real"] - df["Custo_Produto_Total"]).round(2)
+        # Aplica a lógica de custo
+        df["Custo_Produto"] = df["SKU"].apply(calcular_custo_sku)
+        df["Custo_Produto_Total"] = df["Custo_Produto"].fillna(0) * df[coluna_unidades]
 
-            df["Margem_Final_%"] = (
-                (df["Lucro_Liquido"] / df["Valor_Venda"].replace(0, np.nan)) * 100
-            ).round(2)
+        # --- Custo Fiscal e Embalagem ---
+        if "Custo_Fiscal" not in df.columns:
+            df["Custo_Fiscal"] = 0.0
+        if "Custo_Embalagem" not in df.columns:
+            df["Custo_Embalagem"] = 0.0
+        else:
+            df["Custo_Embalagem"] = pd.to_numeric(df["Custo_Embalagem"], errors="coerce").fillna(0)
 
-            df["Markup_%"] = (
-                (df["Lucro_Liquido"] / df["Custo_Produto_Total"].replace(0, np.nan)) * 100
-            ).round(2)
+        # --- Lucro e Margens completas ---
+        df["Lucro_Liquido"] = (df["Lucro_Real"] - df["Custo_Produto_Total"]).round(2)
 
-            custo_carregado = True
-        except Exception as e:
-            st.error(f"Erro ao aplicar custos: {e}")
+        df["Margem_Final_%"] = (
+            (df["Lucro_Liquido"] / df["Valor_Venda"].replace(0, np.nan)) * 100
+        ).round(2)
+
+        df["Markup_%"] = (
+            (df["Lucro_Liquido"] / df["Custo_Produto_Total"].replace(0, np.nan)) * 100
+        ).round(2)
+
+        custo_carregado = True
+    except Exception as e:
+        st.error(f"Erro ao aplicar custos (kits compostos): {e}")
+
 
     # Garante que as colunas existam para o bloco de métricas, mesmo que o merge de custo falhe
     if "Margem_Final_%" not in df.columns:
