@@ -607,6 +607,8 @@ else:
         df["Margem_Final_%"] = 0.0
     if "Lucro_Liquido" not in df.columns:
         df["Lucro_Liquido"] = df["Lucro_Real"].copy()
+else:
+    st.warning("⚠️ DataFrame de vendas ainda não carregado. Pulei o bloco de margens.")
     
     # Define Margem_Liquida_% (baseada em Lucro_Real para o caso sem custos de produto)
     df["Margem_Liquida_%"] = (
