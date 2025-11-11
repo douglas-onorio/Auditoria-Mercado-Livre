@@ -373,11 +373,20 @@ if uploaded_file and df is not None:
         mask_na = df["Tarifa_Total_R$"].isna() | (df["Tarifa_Total_R$"] == 0)
         df.loc[mask_na, "Tarifa_Total_R$"] = (df.loc[mask_na, "Tarifa_Venda"] + df.loc[mask_na, "Tarifa_Fixa_R$"]).round(2)
 
-    # Em pacotes agrupados: Tipo_Anuncio dos filhos já ficou "Agrupado (Pacotes)"
-    # Garante que a linha-mãe NÃO tenha Custo_Embalagem rateado (fica o total do pacote)
+    # === AJUSTA CUSTO DE EMBALAGEM APÓS PROCESSAMENTO DE PACOTES ===
     if "Estado" in df.columns and "Custo_Embalagem" in df.columns:
         mask_mae = df["Estado"].str.contains("Pacote de", case=False, na=False)
+        mask_filho = df.get("Origem_Pacote", "").astype(str).str.endswith("-PACOTE")
+
+        # 1️⃣ Linha-mãe (pacote): mantém o total (ex: 3,00)
         df.loc[mask_mae, "Custo_Embalagem"] = round(custo_embalagem, 2)
+
+        # 2️⃣ Filhos: mantém o valor já rateado (não altera)
+        # Nenhuma ação aqui — o rateio feito antes é preservado.
+
+        # 3️⃣ Itens isolados (fora de pacotes): aplica custo cheio padrão
+        df.loc[~mask_mae & ~mask_filho, "Custo_Embalagem"] = round(custo_embalagem, 2)
+
 
     # Em itens isolados (não-pacote), Custo_Embalagem = valor cheio (3,00 por padrão)
     if "Custo_Embalagem" in df.columns:
