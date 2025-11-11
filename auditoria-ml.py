@@ -396,6 +396,47 @@ if uploaded_file and df is not None:
                 # Aplica o resultado da validação nas linhas filhas
                 df.loc[df["Origem_Pacote"] == pacote, "Tarifa_Validada_ML"] = "✔️" if abs(soma_filhas - tarifa_pai) < 1 else "❌"
 
+    # === AJUSTE TARIFAS E FRETE PARA VENDAS UNITÁRIAS ===
+mask_unitarios = df["Origem_Pacote"].isna() & df["Tipo_Anuncio"].notna()
+
+for i, row in df.loc[mask_unitarios].iterrows():
+    preco_unit = float(row.get("Preco_Unitario", 0) or 0)
+    tipo_anuncio = str(row.get("Tipo_Anuncio", "")).lower().strip()
+    unidades = int(row.get(coluna_unidades, 1))
+    valor_total_item = preco_unit * unidades
+
+    # Determina percentual e custo fixo conforme tabela ML
+    if "premium" in tipo_anuncio:
+        perc = 0.17
+    elif "clássico" in tipo_anuncio or "classico" in tipo_anuncio:
+        perc = 0.12
+    else:
+        perc = 0.12
+
+    if preco_unit < 12.5:
+        custo_fixo = round(preco_unit * 0.5, 2)
+    elif preco_unit < 30:
+        custo_fixo = 6.25
+    elif preco_unit < 50:
+        custo_fixo = 6.50
+    elif preco_unit < 79:
+        custo_fixo = 6.75
+    else:
+        custo_fixo = 0.0
+
+    tarifa_total = round(valor_total_item * perc + (custo_fixo * unidades), 2)
+
+    # Divide o frete igualmente por unidade (quando aplicável)
+    frete_total = float(row.get("Tarifa_Envio", 0) or 0)
+    if frete_total > 0 and unidades > 1:
+        df.loc[i, "Tarifa_Envio"] = round(frete_total / unidades, 2)
+
+    # Atualiza colunas finais
+    df.loc[i, "Tarifa_Percentual_%"] = perc * 100
+    df.loc[i, "Tarifa_Fixa_R$"] = custo_fixo * unidades
+    df.loc[i, "Tarifa_Total_R$"] = tarifa_total
+    df.loc[i, "Tarifa_Venda"] = tarifa_total
+
     # === CONVERSÕES ===
     for c in ["Valor_Venda", "Valor_Recebido", "Tarifa_Venda", "Tarifa_Envio", "Cancelamentos", "Preco_Unitario"]:
         if c in df.columns:
@@ -795,9 +836,53 @@ if uploaded_file and df is not None:
     df_export = df[colunas_exportar].copy()
 
     output = BytesIO()
-    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-        df_export.to_excel(writer, index=False, sheet_name="Auditoria", freeze_panes=(1, 0))
-    output.seek(0)
+with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+    df_export.to_excel(writer, index=False, sheet_name="Auditoria", freeze_panes=(1, 0))
+
+    workbook = writer.book
+    worksheet = writer.sheets["Auditoria"]
+
+    comentarios = {
+        "Venda": "Número identificador da venda no Mercado Livre.",
+        "SKU": "Código interno do produto ou combinação de produtos em pacotes.",
+        "Tipo_Anuncio": "Tipo de anúncio no Mercado Livre (Clássico ou Premium).",
+        "Valor_Venda": "Valor total bruto da venda do item (sem deduções).",
+        "Valor_Recebido": "Valor líquido recebido pelo vendedor após tarifas e descontos do ML.",
+        "Tarifa_Venda": "Soma das tarifas de venda cobradas pelo ML.",
+        "Tarifa_Percentual_%": "Percentual aplicado conforme o tipo de anúncio.",
+        "Tarifa_Fixa_R$": "Tarifa fixa cobrada por unidade, conforme faixa de preço do item.",
+        "Tarifa_Total_R$": "Tarifa final total cobrada pelo ML = Valor_Venda*% + Tarifa_Fixa.",
+        "Tarifa_Envio": "Parte proporcional do frete atribuída ao item.",
+        "Cancelamentos": "Valor de reembolso ou cancelamento, se aplicável.",
+        "Custo_Embalagem": "Custo fixo definido no painel lateral para embalagem.",
+        "Custo_Fiscal": "Percentual configurável aplicado sobre o Valor_Venda.",
+        "Receita_Envio": "Valor recebido do comprador referente ao frete (se houver).",
+        "Lucro_Bruto": "Valor_Venda + Receita_Envio − Tarifa_Venda − Tarifa_Envio.",
+        "Lucro_Real": "Lucro_Bruto − Custo_Embalagem − Custo_Fiscal.",
+        "Margem_Liquida_%": "Lucro_Real ÷ Valor_Venda × 100.",
+        "Custo_Produto": "Custo unitário do produto conforme planilha de custos.",
+        "Custo_Produto_Total": "Custo total do produto multiplicado pela quantidade vendida.",
+        "Lucro_Liquido": "Lucro_Real − Custo_Produto_Total.",
+        "Margem_Final_%": "Lucro_Liquido ÷ Valor_Venda × 100.",
+        "Markup_%": "Lucro_Liquido ÷ Custo_Produto_Total × 100.",
+        "Origem_Pacote": "Identificação da venda como pacote ou item individual.",
+        "Status": "Classificação automática (Normal, Acima da Margem, Cancelamento, etc.)."
+    }
+
+    # Aplica comentários nas colunas exportadas
+    for idx, col in enumerate(df_export.columns):
+        if col in comentarios:
+            worksheet.write_comment(0, idx, comentarios[col])
+
+    # === Adiciona fórmulas automáticas nas colunas principais ===
+    linhas = len(df_export)
+    for row in range(1, linhas + 1):
+        worksheet.write_formula(f"N{row+1}", f"=H{row+1}+O{row+1}-I{row+1}-L{row+1}")  # Lucro_Bruto
+        worksheet.write_formula(f"O{row+1}", f"=N{row+1}-K{row+1}-L{row+1}")          # Lucro_Real
+        worksheet.write_formula(f"P{row+1}", f"=O{row+1}/H{row+1}*100")                # Margem_Liquida_%
+        worksheet.write_formula(f"T{row+1}", f"=O{row+1}-S{row+1}")                    # Lucro_Liquido
+        worksheet.write_formula(f"U{row+1}", f"=T{row+1}/H{row+1}*100")                # Margem_Final_%
+        worksheet.write_formula(f"V{row+1}", f"=T{row+1}/S{row+1}*100")                # Markup_%
 
     st.download_button(
         label="⬇️ Baixar Relatório XLSX (colunas principais e financeiras)",
