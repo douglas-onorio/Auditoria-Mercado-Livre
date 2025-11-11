@@ -294,12 +294,12 @@ if uploaded_file and df is not None:
         estado = str(row.get("Estado", ""))
         match = re.search(r"Pacote de (\d+) produtos", estado, flags=re.IGNORECASE)
         if not match:
-            df.loc[i, "Origem_Pacote"] = None  # linhas fora do pacote
+            df.loc[i, "Origem_Pacote"] = None
             continue
 
         qtd = int(match.group(1))
         if i + 1 + qtd > len(df):
-            st.warning(f"⚠️ Aviso: Pacote da venda {row.get('Venda', 'N/A')} na linha {i+6} está incompleto e foi ignorado.")
+            st.warning(f"⚠️ Pacote da venda {row.get('Venda', 'N/A')} na linha {i+6} está incompleto e foi ignorado.")
             continue
 
         subset = df.iloc[i + 1 : i + 1 + qtd].copy()
@@ -315,35 +315,28 @@ if uploaded_file and df is not None:
 
         soma_precos = subset["Preco_Unitario_Item"].sum()
         total_unidades = subset[coluna_unidades].sum() or 1
-
-        # --- custo de embalagem rateado ---
         custo_embalagem_unit = round(custo_embalagem / qtd, 2)
 
         total_tarifa_venda = 0
         total_tarifa_total = 0
-        total_frete_calc = 0
 
         for j in subset.index:
             preco_unit = float(subset.loc[j, "Preco_Unitario_Item"] or 0)
             tipo_anuncio = subset.loc[j, "Tipo_Anuncio"]
             perc = calcular_percentual(tipo_anuncio)
             custo_fixo = calcular_custo_fixo(preco_unit)
-
             unidades_item = subset.loc[j, coluna_unidades]
-            valor_item_total = preco_unit * unidades_item
 
-            # Tarifas
+            valor_item_total = preco_unit * unidades_item
             tarifa_percentual = round(valor_item_total * perc, 2)
             tarifa_total = round(tarifa_percentual + (custo_fixo * unidades_item), 2)
 
-            # Proporção da receita e frete
             proporcao_venda = (preco_unit / soma_precos) if soma_precos else 0
             valor_recebido_item = round(total_recebido_pacote * proporcao_venda, 2)
-
             proporcao_unidades = unidades_item / total_unidades
             frete_item = round(frete_total_pacote * proporcao_unidades, 2)
 
-            # Atualiza linhas filhas
+            # aplica nos filhos
             df.loc[j, "Valor_Venda"] = valor_item_total
             df.loc[j, "Valor_Recebido"] = valor_recebido_item
             df.loc[j, "Tarifa_Venda"] = tarifa_percentual
@@ -357,20 +350,17 @@ if uploaded_file and df is not None:
 
             total_tarifa_venda += tarifa_percentual
             total_tarifa_total += tarifa_total
-            total_frete_calc += frete_item
 
-        # --- linha-mãe do pacote ---
+        # atualiza a linha-mãe com soma real
         df.loc[i, "Estado"] = f"{estado} (processado)"
         df.loc[i, "Tipo_Anuncio"] = "Agrupado (Pacotes)"
         df.loc[i, "Tarifa_Venda"] = round(total_tarifa_venda, 2)
         df.loc[i, "Tarifa_Total_R$"] = round(total_tarifa_total, 2)
-        df.loc[i, "Tarifa_Envio"] = round(frete_total_pacote, 2)
         df.loc[i, "Custo_Embalagem"] = round(custo_embalagem, 2)
         df.loc[i, "Origem_Pacote"] = "PACOTE"
-
-        # limpa lucro e margens da linha-mãe
         for col in ["Lucro_Real","Lucro_Liquido","Margem_Final_%","Markup_%"]:
             df.loc[i, col] = 0
+
 
         # === NORMALIZA CAMPOS PÓS-PACOTES ===
     # Garante que tarifas estejam consistentes para todas as linhas
@@ -826,31 +816,6 @@ if uploaded_file and df is not None:
             else: return 0.0
         df["Tarifa_Fixa_R$"] = df.get("Preco_Unitario", 0).apply(fixa) if "Preco_Unitario" in df.columns else 0.0
         df["Tarifa_Total_R$"] = (df["Valor_Venda"] * df["Tarifa_Percentual_%"] + df["Tarifa_Fixa_R$"]).round(2)
-
-# === AJUSTE DE CUSTOS E TARIFAS PARA PACOTES ===
-if "Origem_Pacote" in df.columns and "Custo_Embalagem" in df.columns:
-    pacotes = df[df["Origem_Pacote"].notna() & df["Origem_Pacote"].str.endswith("-PACOTE")]
-    for origem in pacotes["Origem_Pacote"].unique():
-        mask = df["Origem_Pacote"] == origem
-        qtd_itens = mask.sum()
-        if qtd_itens > 0:
-            # Divide o custo de embalagem igualmente entre os itens filhos
-            df.loc[mask, "Custo_Embalagem"] = custo_embalagem / qtd_itens
-
-# === TARIFAS CORRIGIDAS ===
-# Calcula a tarifa percentual com base no tipo de anúncio
-df["Tarifa_Percentual_%"] = df["Tipo_Anuncio"].apply(lambda x: 17 if "premium" in str(x).lower() else 12)
-df["Tarifa_Venda"] = (df["Valor_Venda"] * (df["Tarifa_Percentual_%"] / 100)).round(2)
-
-# Tarifa fixa conforme regra de faixa de preço
-def calc_tarifa_fixa(v):
-    if v < 12.5: return round(v * 0.5, 2)
-    elif v < 30: return 6.25
-    elif v < 50: return 6.50
-    elif v < 79: return 6.75
-    return 0.0
-df["Tarifa_Fixa_R$"] = df["Valor_Venda"].apply(calc_tarifa_fixa)
-df["Tarifa_Total_R$"] = (df["Tarifa_Venda"] + df["Tarifa_Fixa_R$"]).round(2)
 
 # === ADICIONA A COLUNA UNIDADES ===
 if "Unidades" not in df.columns:
