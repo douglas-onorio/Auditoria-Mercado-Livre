@@ -494,12 +494,14 @@ for i, row in df.loc[mask_unitarios].iterrows():
         if produto_concat:
             df.loc[i, "Produto"] = produto_concat
 
-    # Exibe resumo de conferência
-    st.write("✅ Pacotes processados (SKU e Produto combinados):")
+# === EXIBE PACOTES PROCESSADOS UMA ÚNICA VEZ ===
+pacotes_processados = df[df["Estado"].str.contains("Pacote", case=False, na=False, na_value=False)][["Venda", "SKU", "Produto"]]
+if not pacotes_processados.empty:
+    st.success("✅ Pacotes processados (SKU e Produto combinados):")
     st.dataframe(
-        df[df["Estado"].str.contains("Pacote", case=False, na=False)][["Venda", "SKU", "Produto"]],
+        pacotes_processados.drop_duplicates(subset=["Venda", "SKU"]),
         use_container_width=True,
-        height=200
+        height=250
     )
 
     # === AJUSTE VENDA ===
