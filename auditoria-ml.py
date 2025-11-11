@@ -319,16 +319,16 @@ if uploaded_file and df is not None:
         subset["Preco_Unitario_Item"] = pd.to_numeric(subset[col_preco_unitario], errors="coerce").fillna(0)
         
         # Calcula a soma dos preços unitários dos itens do pacote para proporção
-        soma_precos = subset["Preco_Unitario_Item"].sum()
+        soma_precos = subset["Preco_Unitario_Item"].sum() 
         # Calcula a soma das unidades para proporção de frete
-        total_unidades = subset[coluna_unidades].sum() or 1
+        total_unidades = subset[coluna_unidades].sum() or 1 
 
-        # Custo de embalagem rateado entre os itens do pacote
+        # Divide o custo de embalagem entre os itens do pacote
         custo_embalagem_unit = round(custo_embalagem / qtd, 2)
 
-        total_tarifas_calc = total_recebido_calc = total_frete_calc = 0
+        total_tarifas_calc = total_tarifa_total = total_recebido_calc = total_frete_calc = 0
 
-        # Loop dos itens do pacote
+        # Loop corrigido
         for j in subset.index:
             preco_unit = float(subset.loc[j, "Preco_Unitario_Item"] or 0)
             tipo_anuncio = subset.loc[j, "Tipo_Anuncio"]
@@ -364,19 +364,20 @@ if uploaded_file and df is not None:
             df.loc[j, "Tipo_Anuncio"] = "Agrupado (Pacotes)"
             df.loc[j, "Valor_Item_Total"] = valor_item_total
 
-            total_tarifas_calc += tarifa_total
+            total_tarifas_calc += tarifa_percentual
+            total_tarifa_total += tarifa_total
             total_recebido_calc += valor_recebido_item
             total_frete_calc += frete_item
 
         # Atualiza a linha principal do pacote (i)
         df.loc[i, "Estado"] = f"{estado} (processado)"
-        df.loc[i, "Tarifa_Venda"] = round(total_tarifas_calc, 2)  # soma das taxas dos filhos
-        df.loc[i, "Tarifa_Total_R$"] = round(total_tarifas_calc, 2)
+        df.loc[i, "Tarifa_Venda"] = round(total_tarifas_calc, 2)  # soma só das percentuais
+        df.loc[i, "Tarifa_Total_R$"] = round(total_tarifa_total, 2)  # soma total dos filhos
         df.loc[i, "Tarifa_Envio"] = round(frete_total, 2)
         df.loc[i, "Valor_Recebido"] = total_recebido
         df.loc[i, "Origem_Pacote"] = "PACOTE"
         df.loc[i, "Tipo_Anuncio"] = "Agrupado (Pacotes)"
-        df.loc[i, "Custo_Embalagem"] = custo_embalagem  # custo total do pacote
+        df.loc[i, "Custo_Embalagem"] = round(custo_embalagem, 2)  # custo total do pacote
 
         # Zera métricas de lucro para a linha mãe
         df.loc[i, "Lucro_Real"] = 0
