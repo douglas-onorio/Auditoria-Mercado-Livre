@@ -561,7 +561,21 @@ if uploaded_file and df is not None:
     )
 
     # === FINANCEIRO ===
-    df["Custo_Embalagem"] = custo_embalagem
+    # Mantém custo de embalagem já rateado em pacotes
+    if "Custo_Embalagem" not in df.columns:
+        df["Custo_Embalagem"] = custo_embalagem
+    else:
+        df["Custo_Embalagem"] = df["Custo_Embalagem"].fillna(custo_embalagem)
+
+    # Ajusta custo de embalagem na linha-mãe (soma total dos filhos)
+    if "Origem_Pacote" in df.columns and "Custo_Embalagem" in df.columns:
+        pacotes_mae = df[df["Estado"].str.contains("Pacote de", case=False, na=False)]
+        for idx in pacotes_mae.index:
+            venda_pai = df.loc[idx, "Venda"]
+            filhos = df[df["Origem_Pacote"] == f"{venda_pai}-PACOTE"]
+            if not filhos.empty:
+                df.loc[idx, "Custo_Embalagem"] = round(filhos["Custo_Embalagem"].sum(), 2)
+
     df["Custo_Fiscal"] = (df["Valor_Venda"] * (custo_fiscal / 100)).round(2)
 
     # Se houver receita de envio, soma ao cálculo (senão, considera 0)
