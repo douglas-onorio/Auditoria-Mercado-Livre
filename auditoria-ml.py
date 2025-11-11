@@ -385,6 +385,28 @@ if uploaded_file and df is not None:
         df.loc[i, "Margem_Final_%"] = 0
         df.loc[i, "Markup_%"] = 0
 
+        # === NORMALIZA CAMPOS PÓS-PACOTES ===
+    # Garante que tarifas estejam consistentes para todas as linhas
+    for col_fix in ["Tarifa_Venda", "Tarifa_Fixa_R$", "Tarifa_Total_R$", "Tarifa_Envio", "Custo_Embalagem"]:
+        if col_fix in df.columns:
+            df[col_fix] = pd.to_numeric(df[col_fix], errors="coerce").fillna(0).round(2)
+
+    # Se Tarifa_Total_R$ veio vazia em algum item, calcula como percentual + fixa
+    if {"Tarifa_Total_R$", "Tarifa_Venda", "Tarifa_Fixa_R$"}.issubset(df.columns):
+        mask_na = df["Tarifa_Total_R$"].isna() | (df["Tarifa_Total_R$"] == 0)
+        df.loc[mask_na, "Tarifa_Total_R$"] = (df.loc[mask_na, "Tarifa_Venda"] + df.loc[mask_na, "Tarifa_Fixa_R$"]).round(2)
+
+    # Em pacotes agrupados: Tipo_Anuncio dos filhos já ficou "Agrupado (Pacotes)"
+    # Garante que a linha-mãe NÃO tenha Custo_Embalagem rateado (fica o total do pacote)
+    if "Estado" in df.columns and "Custo_Embalagem" in df.columns:
+        mask_mae = df["Estado"].str.contains("Pacote de", case=False, na=False)
+        df.loc[mask_mae, "Custo_Embalagem"] = round(custo_embalagem, 2)
+
+    # Em itens isolados (não-pacote), Custo_Embalagem = valor cheio (3,00 por padrão)
+    if "Custo_Embalagem" in df.columns:
+        mask_filho = df.get("Origem_Pacote", "").astype(str).str.endswith("-PACOTE")
+        df.loc[~mask_mae & ~mask_filho, "Custo_Embalagem"] = round(custo_embalagem, 2)
+
     # === VALIDAÇÃO DOS PACOTES ===
     df["Tarifa_Validada_ML"] = ""
     mask_pacotes = df["Origem_Pacote"].notna()
@@ -833,101 +855,148 @@ df["Tarifa_Total_R$"] = (df["Tarifa_Venda"] + df["Tarifa_Fixa_R$"]).round(2)
 if "Unidades" not in df.columns:
     df["Unidades"] = 1
 
-# === EXPORTAÇÃO FINAL COM CABEÇALHO E FÓRMULAS ===
+# === EXPORTAÇÃO FINAL (texto topo, comentários, fórmulas e formatação) ===
 colunas_exportar = [
-    "Venda","SKU","Tipo_Anuncio","Unidades","Valor_Venda","Valor_Recebido","Tarifa_Venda",
-    "Tarifa_Percentual_%","Tarifa_Fixa_R$","Tarifa_Total_R$","Tarifa_Envio","Cancelamentos",
-    "Custo_Embalagem","Custo_Fiscal","Receita_Envio","Lucro_Bruto","Lucro_Real","Margem_Liquida_%",
-    "Custo_Produto","Custo_Produto_Total","Lucro_Liquido","Margem_Final_%","Markup_%",
+    "Venda","SKU","Tipo_Anuncio","Unidades",
+    "Valor_Venda","Valor_Recebido",
+    "Tarifa_Venda","Tarifa_Percentual_%","Tarifa_Fixa_R$","Tarifa_Total_R$",
+    "Tarifa_Envio","Cancelamentos",
+    "Custo_Embalagem","Custo_Fiscal","Receita_Envio",
+    "Lucro_Bruto","Lucro_Real","Margem_Liquida_%",
+    "Custo_Produto","Custo_Produto_Total",
+    "Lucro_Liquido","Margem_Final_%","Markup_%",
     "Origem_Pacote","Status"
 ]
 df_export = df[[c for c in colunas_exportar if c in df.columns]].copy()
 
-# Corrige percentuais (mantém formato 0.00%)
-pct_cols = [c for c in ["Tarifa_Percentual_%","Margem_Liquida_%","Margem_Final_%","Markup_%"] if c in df_export.columns]
-for c in pct_cols:
-    df_export[c] = pd.to_numeric(df_export[c], errors="coerce") / (100 if df_export[c].max() > 1 else 1)
+# Converte colunas % para fração de forma segura (sem estourar 6000%)
+def to_fraction(s):
+    v = pd.to_numeric(s, errors="coerce")
+    if v.max(skipna=True) is not None and v.max(skipna=True) > 1:
+        v = v / 100.0
+    return v
 
-# Texto explicativo
-explicacao = [
-    ["⚙️ Estrutura correta e interpretação:"],
-    ["Lucro_Bruto", "Resultado antes dos custos internos (Valor_Venda + Receita_Envio − Tarifa_Venda − Tarifa_Envio)"],
-    ["Lucro_Real", "Lucro após Custo_Embalagem e Custo_Fiscal"],
-    ["Margem_Liquida_%", "Lucro_Real ÷ Valor_Venda × 100"],
-    ["Custo_Produto", "Custo unitário de compra"],
-    ["Custo_Produto_Total", "Custo_Produto × Unidades"],
-    ["Lucro_Liquido", "Lucro_Real − Custo_Produto_Total"],
-    ["Margem_Final_%", "Lucro_Liquido ÷ Valor_Venda × 100"],
-    ["Markup_%", "Lucro_Liquido ÷ Custo_Produto_Total × 100"],
-    []
-]
+for c in [x for x in ["Tarifa_Percentual_%","Margem_Liquida_%","Margem_Final_%","Markup_%"] if x in df_export.columns]:
+    df_export[c] = to_fraction(df_export[c])
+
+# Texto explicativo (topo) — mantém cabeçalho e fórmulas alinhados
+topo_texto = (
+    "⚙️ Estrutura correta e interpretação:\n"
+    "• Lucro_Bruto = Valor_Venda + Receita_Envio − Tarifa_Venda − Tarifa_Envio\n"
+    "• Lucro_Real  = Lucro_Bruto − Custo_Embalagem − Custo_Fiscal\n"
+    "• Margem_Liquida_% = Lucro_Real ÷ Valor_Venda\n"
+    "• Lucro_Liquido = Lucro_Real − Custo_Produto_Total\n"
+    "• Margem_Final_% = Lucro_Liquido ÷ Valor_Venda\n"
+    "• Markup_% = Lucro_Liquido ÷ Custo_Produto_Total\n"
+    "Observações:\n"
+    "– Em pacotes, Custo_Embalagem é rateado entre os itens; a linha-mãe mostra o total do pacote.\n"
+    "– Tarifa_Venda é apenas a parte percentual; Tarifa_Total_R$ = percentual + tarifa fixa.\n"
+)
 
 output = BytesIO()
 with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-    start_row = len(explicacao) + 1
-    df_export.to_excel(writer, index=False, sheet_name="Auditoria", startrow=start_row)
     wb = writer.book
+    # Começa a escrever dados na linha 4 (índice 3), deixando 3 linhas para o texto
+    startrow = 3
+    df_export.to_excel(writer, index=False, sheet_name="Auditoria", startrow=startrow)
     ws = writer.sheets["Auditoria"]
 
-    # Cabeçalho explicativo
-    bold = wb.add_format({"bold": True, "font_color": "blue"})
-    for r, linha in enumerate(explicacao):
-        for c, valor in enumerate(linha):
-            ws.write(r, c, valor, bold if r == 0 else None)
+    # Texto de topo (linhas 1-3)
+    ws.merge_range("A1:Z1", "Auditoria Financeira Mercado Livre", wb.add_format({"bold": True, "font_size": 14}))
+    ws.merge_range("A2:Z3", topo_texto, wb.add_format({"text_wrap": True, "valign": "top"}))
 
-    # Comentários
+    # Comentários no cabeçalho
     comments = {
-        "Unidades":"Quantidade de itens vendidos neste SKU.",
+        "Venda":"ID da venda no ML.",
+        "SKU":"Código interno (ou composição em pacotes).",
+        "Tipo_Anuncio":"Clássico (12%), Premium (17%) ou Agrupado (Pacotes).",
+        "Unidades":"Quantidade comprada do item.",
+        "Valor_Venda":"Preço unitário × Unidades (por item).",
+        "Valor_Recebido":"Repasse líquido do ML atribuído ao item.",
+        "Tarifa_Venda":"Somente a parte percentual do ML.",
+        "Tarifa_Percentual_%":"Percentual do ML (fração).",
+        "Tarifa_Fixa_R$":"Tarifa fixa por unidade conforme faixa de preço.",
+        "Tarifa_Total_R$":"Tarifa_Venda + Tarifa_Fixa_R$.",
+        "Tarifa_Envio":"Parcela do frete atribuída ao item.",
+        "Cancelamentos":"Reembolsos/cancelamentos.",
+        "Custo_Embalagem":"Em pacotes é rateado entre os itens; na linha-mãe é o total.",
+        "Custo_Fiscal":"% configurável sobre Valor_Venda.",
+        "Receita_Envio":"Receita recebida do frete (se houver).",
         "Lucro_Bruto":"Valor_Venda + Receita_Envio − Tarifa_Venda − Tarifa_Envio.",
         "Lucro_Real":"Lucro_Bruto − Custo_Embalagem − Custo_Fiscal.",
-        "Margem_Liquida_%":"Lucro_Real / Valor_Venda.",
+        "Margem_Liquida_%":"Lucro_Real ÷ Valor_Venda.",
+        "Custo_Produto":"Custo unitário (planilha).",
+        "Custo_Produto_Total":"Custo_Produto × Unidades.",
         "Lucro_Liquido":"Lucro_Real − Custo_Produto_Total.",
-        "Margem_Final_%":"Lucro_Liquido / Valor_Venda.",
-        "Markup_%":"Lucro_Liquido / Custo_Produto_Total.",
+        "Margem_Final_%":"Lucro_Liquido ÷ Valor_Venda.",
+        "Markup_%":"Lucro_Liquido ÷ Custo_Produto_Total.",
+        "Origem_Pacote":"ID do pacote (se aplicável).",
+        "Status":"Normal, Acima da Margem, Cancelamento, etc."
     }
-    for j, col in enumerate(df_export.columns):
+    headers = list(df_export.columns)
+    for j, col in enumerate(headers):
         if col in comments:
-            ws.write_comment(start_row, j, comments[col])
+            ws.write_comment(startrow, j, comments[col])
 
-    # Formatação
+    # Formatação de colunas
     fmt_money = wb.add_format({'num_format': 'R$ #,##0.00'})
     fmt_pct   = wb.add_format({'num_format': '0.00%'})
+    fmt_int   = wb.add_format({'num_format': '0'})
     fmt_txt   = wb.add_format()
-    for j, col in enumerate(df_export.columns):
-        if "%" in col:
+
+    for j, col in enumerate(headers):
+        if col in ["Unidades"]:
+            ws.set_column(j, j, 10, fmt_int)
+        elif "%" in col:
             ws.set_column(j, j, 12, fmt_pct)
         elif any(x in col for x in ["Valor","Lucro","Custo","Tarifa","Receita"]):
-            ws.set_column(j, j, 15, fmt_money)
+            ws.set_column(j, j, 16, fmt_money)
         else:
             ws.set_column(j, j, 18, fmt_txt)
 
-    # Fórmulas
-    headers = {df_export.columns[i]: i for i in range(len(df_export.columns))}
-    def col_letter(idx):
-        s = ""
-        idx += 1
+    # ► Fórmulas (coerentes com startrow)
+    n = len(df_export)
+
+    def col_letter(idx):  # 0-based -> 'A', 'B', ...
+        s = ""; idx += 1
         while idx:
             idx, r = divmod(idx-1, 26)
             s = chr(65+r) + s
         return s
-    def c(name): return col_letter(headers[name])
-    for r in range(start_row+2, start_row+2+len(df_export)):
-        if all(k in headers for k in ["Lucro_Bruto","Valor_Venda","Receita_Envio","Tarifa_Venda","Tarifa_Envio"]):
-            ws.write_formula(f"{c('Lucro_Bruto')}{r}", f"=IFERROR({c('Valor_Venda')}{r}+{c('Receita_Envio')}{r}-{c('Tarifa_Venda')}{r}-{c('Tarifa_Envio')}{r},0)")
-        if all(k in headers for k in ["Lucro_Real","Lucro_Bruto","Custo_Embalagem","Custo_Fiscal"]):
-            ws.write_formula(f"{c('Lucro_Real')}{r}", f"=IFERROR({c('Lucro_Bruto')}{r}-{c('Custo_Embalagem')}{r}-{c('Custo_Fiscal')}{r},0)")
-        if all(k in headers for k in ["Margem_Liquida_%","Lucro_Real","Valor_Venda"]):
-            ws.write_formula(f"{c('Margem_Liquida_%')}{r}", f"=IFERROR({c('Lucro_Real')}{r}/{c('Valor_Venda')}{r},0)")
-        if all(k in headers for k in ["Lucro_Liquido","Lucro_Real","Custo_Produto_Total"]):
-            ws.write_formula(f"{c('Lucro_Liquido')}{r}", f"=IFERROR({c('Lucro_Real')}{r}-{c('Custo_Produto_Total')}{r},0)")
-        if all(k in headers for k in ["Margem_Final_%","Lucro_Liquido","Valor_Venda"]):
-            ws.write_formula(f"{c('Margem_Final_%')}{r}", f"=IFERROR({c('Lucro_Liquido')}{r}/{c('Valor_Venda')}{r},0)")
-        if all(k in headers for k in ["Markup_%","Lucro_Liquido","Custo_Produto_Total"]):
-            ws.write_formula(f"{c('Markup_%')}{r}", f"=IFERROR({c('Lucro_Liquido')}{r}/{c('Custo_Produto_Total')}{r},0)")
 
+    col_idx = {headers[i]: i for i in range(len(headers))}
+    def C(name): return col_letter(col_idx[name])
+
+    # Linhas com dados no Excel começam em startrow+2 (cabeçalho ocupa startrow+1)
+    first_r = startrow + 2
+    last_r  = startrow + 1 + n
+
+    for r in range(first_r, last_r+1):
+        if all(k in col_idx for k in ["Lucro_Bruto","Valor_Venda","Receita_Envio","Tarifa_Venda","Tarifa_Envio"]):
+            ws.write_formula(f"{C('Lucro_Bruto')}{r}",
+                             f"=IFERROR({C('Valor_Venda')}{r}+{C('Receita_Envio')}{r}-{C('Tarifa_Venda')}{r}-{C('Tarifa_Envio')}{r},0)")
+        if all(k in col_idx for k in ["Lucro_Real","Lucro_Bruto","Custo_Embalagem","Custo_Fiscal"]):
+            ws.write_formula(f"{C('Lucro_Real')}{r}",
+                             f"=IFERROR({C('Lucro_Bruto')}{r}-{C('Custo_Embalagem')}{r}-{C('Custo_Fiscal')}{r},0)")
+        if all(k in col_idx for k in ["Margem_Liquida_%","Lucro_Real","Valor_Venda"]):
+            ws.write_formula(f"{C('Margem_Liquida_%')}{r}",
+                             f"=IFERROR({C('Lucro_Real')}{r}/{C('Valor_Venda')}{r},0)")
+        if all(k in col_idx for k in ["Lucro_Liquido","Lucro_Real","Custo_Produto_Total"]):
+            ws.write_formula(f"{C('Lucro_Liquido')}{r}",
+                             f"=IFERROR({C('Lucro_Real')}{r}-{C('Custo_Produto_Total')}{r},0)")
+        if all(k in col_idx for k in ["Margem_Final_%","Lucro_Liquido","Valor_Venda"]):
+            ws.write_formula(f"{C('Margem_Final_%')}{r}",
+                             f"=IFERROR({C('Lucro_Liquido')}{r}/{C('Valor_Venda')}{r},0)")
+        if all(k in col_idx for k in ["Markup_%","Lucro_Liquido","Custo_Produto_Total"]):
+            ws.write_formula(f"{C('Markup_%')}{r}",
+                             f"=IFERROR({C('Lucro_Liquido')}{r}/{C('Custo_Produto_Total')}{r},0)")
+
+    # Congela cabeçalho (abaixo do texto)
+    ws.freeze_panes(startrow+1, 0)
+    
 output.seek(0)
 st.download_button(
-    label="⬇️ Baixar Relatório XLSX (corrigido e com explicações)",
+    label="⬇️ Baixar Relatório XLSX (com fórmulas, % corretos, comentários e texto de topo)",
     data=output,
     file_name=f"Auditoria_ML_{datetime.now().strftime('%d-%m-%Y_%H-%M-%S')}.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
