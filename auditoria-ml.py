@@ -397,6 +397,8 @@ if uploaded_file and df is not None:
                 df.loc[df["Origem_Pacote"] == pacote, "Tarifa_Validada_ML"] = "✔️" if abs(soma_filhas - tarifa_pai) < 1 else "❌"
 
     # === AJUSTE TARIFAS E FRETE PARA VENDAS UNITÁRIAS ===
+if "Origem_Pacote" not in df.columns:
+    df["Origem_Pacote"] = None
 mask_unitarios = df["Origem_Pacote"].isna() & df["Tipo_Anuncio"].notna()
 
 for i, row in df.loc[mask_unitarios].iterrows():
