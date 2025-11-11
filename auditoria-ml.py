@@ -301,8 +301,8 @@ if uploaded_file and df is not None:
 
         # Verifica se o subset está dentro dos limites do DataFrame
         if i + 1 + qtd > len(df):
-             st.warning(f"⚠️ Aviso: Pacote da venda {row.get('Venda', 'N/A')} na linha {i+6} está incompleto no final do arquivo e foi ignorado.")
-             continue
+            st.warning(f"⚠️ Aviso: Pacote da venda {row.get('Venda', 'N/A')} na linha {i+6} está incompleto no final do arquivo e foi ignorado.")
+            continue
 
         subset = df.iloc[i + 1 : i + 1 + qtd].copy()
         if subset.empty:
@@ -319,13 +319,16 @@ if uploaded_file and df is not None:
         subset["Preco_Unitario_Item"] = pd.to_numeric(subset[col_preco_unitario], errors="coerce").fillna(0)
         
         # Calcula a soma dos preços unitários dos itens do pacote para proporção
-        soma_precos = subset["Preco_Unitario_Item"].sum() 
+        soma_precos = subset["Preco_Unitario_Item"].sum()
         # Calcula a soma das unidades para proporção de frete
-        total_unidades = subset[coluna_unidades].sum() or 1 
+        total_unidades = subset[coluna_unidades].sum() or 1
+
+        # Custo de embalagem rateado entre os itens do pacote
+        custo_embalagem_unit = round(custo_embalagem / qtd, 2)
 
         total_tarifas_calc = total_recebido_calc = total_frete_calc = 0
 
-        # Loop corrigido: estava indentado incorretamente no código original
+        # Loop dos itens do pacote
         for j in subset.index:
             preco_unit = float(subset.loc[j, "Preco_Unitario_Item"] or 0)
             tipo_anuncio = subset.loc[j, "Tipo_Anuncio"]
@@ -335,9 +338,10 @@ if uploaded_file and df is not None:
             # 🧮 quantidade comprada do item
             unidades_item = subset.loc[j, coluna_unidades]
 
-            # 💰 calcula tarifa com base no valor total do item (preço unitário × unidades)
+            # 💰 calcula tarifa percentual e total
             valor_item_total = preco_unit * unidades_item
-            tarifa_total = round(valor_item_total * perc + (custo_fixo * unidades_item), 2)
+            tarifa_percentual = round(valor_item_total * perc, 2)
+            tarifa_total = round(tarifa_percentual + (custo_fixo * unidades_item), 2)
 
             # Proporção da receita recebida (Valor_Recebido) baseada no preço unitário
             proporcao_venda = (preco_unit / soma_precos) if soma_precos else 0
@@ -347,15 +351,17 @@ if uploaded_file and df is not None:
             proporcao_unidades = unidades_item / total_unidades if total_unidades else 0
             frete_item = round(frete_total * proporcao_unidades, 2)
 
-            # atualiza DataFrame na linha do item (j)
-            df.loc[j, "Valor_Venda"] = valor_item_total # Valor total do item (Preço unitário * Unidades)
+            # Atualiza DataFrame na linha do item (j)
+            df.loc[j, "Valor_Venda"] = valor_item_total
             df.loc[j, "Valor_Recebido"] = valor_recebido_item
-            df.loc[j, "Tarifa_Venda"] = tarifa_total
+            df.loc[j, "Tarifa_Venda"] = tarifa_percentual  # apenas parte percentual
             df.loc[j, "Tarifa_Percentual_%"] = perc * 100
             df.loc[j, "Tarifa_Fixa_R$"] = custo_fixo * unidades_item
             df.loc[j, "Tarifa_Total_R$"] = tarifa_total
             df.loc[j, "Tarifa_Envio"] = frete_item
+            df.loc[j, "Custo_Embalagem"] = custo_embalagem_unit
             df.loc[j, "Origem_Pacote"] = f"{row['Venda']}-PACOTE"
+            df.loc[j, "Tipo_Anuncio"] = "Agrupado (Pacotes)"
             df.loc[j, "Valor_Item_Total"] = valor_item_total
 
             total_tarifas_calc += tarifa_total
@@ -364,10 +370,14 @@ if uploaded_file and df is not None:
 
         # Atualiza a linha principal do pacote (i)
         df.loc[i, "Estado"] = f"{estado} (processado)"
-        df.loc[i, "Tarifa_Venda"] = round(total_tarifas_calc, 2)
+        df.loc[i, "Tarifa_Venda"] = round(total_tarifas_calc, 2)  # soma das taxas dos filhos
+        df.loc[i, "Tarifa_Total_R$"] = round(total_tarifas_calc, 2)
         df.loc[i, "Tarifa_Envio"] = round(frete_total, 2)
         df.loc[i, "Valor_Recebido"] = total_recebido
         df.loc[i, "Origem_Pacote"] = "PACOTE"
+        df.loc[i, "Tipo_Anuncio"] = "Agrupado (Pacotes)"
+        df.loc[i, "Custo_Embalagem"] = custo_embalagem  # custo total do pacote
+
         # Zera métricas de lucro para a linha mãe
         df.loc[i, "Lucro_Real"] = 0
         df.loc[i, "Lucro_Liquido"] = 0
