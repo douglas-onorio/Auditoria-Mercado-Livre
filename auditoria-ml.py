@@ -801,22 +801,6 @@ if uploaded_file and df is not None:
         height=450
     )
 
-    # === CALCULA TARIFAS PARA ITENS UNITÁRIOS (garantia) ===
-    if "Tipo_Anuncio" in df.columns:
-        df["Tipo_Anuncio"] = df["Tipo_Anuncio"].astype(str)
-        df["Tarifa_Percentual_%"] = df["Tipo_Anuncio"].str.lower().apply(
-            lambda x: 0.17 if "premium" in x else 0.12
-        )  # FRAÇÃO (0.12 / 0.17), não 12/17
-        def fixa(preco):
-            preco = float(preco or 0)
-            if preco < 12.5: return round(preco * 0.5, 2)
-            elif preco < 30: return 6.25
-            elif preco < 50: return 6.50
-            elif preco < 79: return 6.75
-            else: return 0.0
-        df["Tarifa_Fixa_R$"] = df.get("Preco_Unitario", 0).apply(fixa) if "Preco_Unitario" in df.columns else 0.0
-        df["Tarifa_Total_R$"] = (df["Valor_Venda"] * df["Tarifa_Percentual_%"] + df["Tarifa_Fixa_R$"]).round(2)
-
 # === ADICIONA A COLUNA UNIDADES ===
 if "Unidades" not in df.columns:
     df["Unidades"] = 1
