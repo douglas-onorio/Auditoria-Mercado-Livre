@@ -349,11 +349,18 @@ if uploaded_file and df is not None:
         if produto_concat:
             df.loc[i, "Produto"] = produto_concat
 
-    # === EXIBE PACOTES PROCESSADOS ===
-    pacotes_processados = df[df["Estado"].str.contains("Pacote", case=False, na=False, na_value=False)][["Venda", "SKU", "Produto"]]
+# === EXIBE PACOTES PROCESSADOS ===
+if "Estado" in df.columns:
+    pacotes_processados = df[df["Estado"].astype(str).str.contains("Pacote", case=False, na=False)][["Venda", "SKU", "Produto"]]
     if not pacotes_processados.empty:
         st.success("✅ Pacotes processados (SKU e Produto combinados):")
-        st.dataframe(pacotes_processados.drop_duplicates(subset=["Venda", "SKU"]), use_container_width=True, height=250)
+        st.dataframe(
+            pacotes_processados.drop_duplicates(subset=["Venda", "SKU"]),
+            use_container_width=True,
+            height=250
+        )
+else:
+    st.info("Nenhuma coluna 'Estado' encontrada no arquivo. Pulando exibição de pacotes.")
 
     # === AJUSTES DE DATA E VENDA ===
     df["Venda"] = df["Venda"].astype(str).str.replace(r"[^\d]", "", regex=True)
