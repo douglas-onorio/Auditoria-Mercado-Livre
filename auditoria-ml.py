@@ -362,35 +362,29 @@ if uploaded_file and df is not None:
             df.loc[i, col] = 0
 
 
-        # === NORMALIZA CAMPOS PÓS-PACOTES ===
-    # Garante que tarifas estejam consistentes para todas as linhas
+    # === NORMALIZA CAMPOS PÓS-PACOTES ===
+    # Converte campos numéricos para garantir consistência
     for col_fix in ["Tarifa_Venda", "Tarifa_Fixa_R$", "Tarifa_Total_R$", "Tarifa_Envio", "Custo_Embalagem"]:
         if col_fix in df.columns:
             df[col_fix] = pd.to_numeric(df[col_fix], errors="coerce").fillna(0).round(2)
 
-    # Se Tarifa_Total_R$ veio vazia em algum item, calcula como percentual + fixa
+    # Recalcula Tarifa_Total_R$ caso esteja zerada
     if {"Tarifa_Total_R$", "Tarifa_Venda", "Tarifa_Fixa_R$"}.issubset(df.columns):
         mask_na = df["Tarifa_Total_R$"].isna() | (df["Tarifa_Total_R$"] == 0)
         df.loc[mask_na, "Tarifa_Total_R$"] = (df.loc[mask_na, "Tarifa_Venda"] + df.loc[mask_na, "Tarifa_Fixa_R$"]).round(2)
 
-    # === AJUSTA CUSTO DE EMBALAGEM APÓS PROCESSAMENTO DE PACOTES ===
-    if "Estado" in df.columns and "Custo_Embalagem" in df.columns:
-        mask_mae = df["Estado"].str.contains("Pacote de", case=False, na=False)
-        mask_filho = df.get("Origem_Pacote", "").astype(str).str.endswith("-PACOTE")
+    # === AJUSTE DEFINITIVO DO CUSTO DE EMBALAGEM ===
+    if "Custo_Embalagem" in df.columns:
+        mask_mae = df["Estado"].astype(str).str.contains("Pacote de", case=False, na=False)
+        mask_filho = df["Origem_Pacote"].astype(str).str.endswith("-PACOTE")
 
-        # 1️⃣ Linha-mãe (pacote): mantém o total (ex: 3,00)
+        # 🔹 1. Mãe do pacote → mantém o custo total configurado (ex: 3,00)
         df.loc[mask_mae, "Custo_Embalagem"] = round(custo_embalagem, 2)
 
-        # 2️⃣ Filhos: mantém o valor já rateado (não altera)
-        # Nenhuma ação aqui — o rateio feito antes é preservado.
+        # 🔹 2. Filhos do pacote → mantém o rateio calculado, não sobrescreve nada
+        # Nenhuma alteração aqui — só garantimos que não sejam afetados
 
-        # 3️⃣ Itens isolados (fora de pacotes): aplica custo cheio padrão
-        df.loc[~mask_mae & ~mask_filho, "Custo_Embalagem"] = round(custo_embalagem, 2)
-
-
-    # Em itens isolados (não-pacote), Custo_Embalagem = valor cheio (3,00 por padrão)
-    if "Custo_Embalagem" in df.columns:
-        mask_filho = df.get("Origem_Pacote", "").astype(str).str.endswith("-PACOTE")
+        # 🔹 3. Itens fora de pacote → custo padrão total (ex: 3,00)
         df.loc[~mask_mae & ~mask_filho, "Custo_Embalagem"] = round(custo_embalagem, 2)
 
     # === VALIDAÇÃO DOS PACOTES ===
