@@ -962,17 +962,17 @@ if uploaded_file and df is not None:
 
         for r in range(startrow+1, startrow + n + 1):
             linha_idx = r - (startrow + 1)
-            tipo = str(df_export.iloc[linha_idx].get("Tipo_Anuncio", "")).lower()
+            tipo = str(df_export.iloc[linha_idx].get("Tipo_Anuncio", "")).strip().lower()
 
-            # Se for linha-mãe de pacote → grava zeros, sem fórmulas
-            if "agrupado (pacotes" in tipo:
+            # 🚫 força zero fixo em qualquer linha que seja PACOTE (mãe)
+            if "pacote" in tipo and "item" not in tipo:
                 for col in ["Lucro_Bruto", "Lucro_Real", "Lucro_Liquido",
                             "Margem_Liquida_%", "Margem_Final_%", "Markup_%"]:
                     if col in col_idx:
                         ws.write_number(r-1, col_idx[col], 0, fmt_money if "Lucro" in col else fmt_pct)
-                continue  # pula as fórmulas abaixo
+                continue  # pula fórmulas abaixo
 
-            # Caso contrário (normal ou item filho), aplica as fórmulas normalmente
+            # ✅ aplica fórmulas normais para os demais (unitários e filhos)
             if all(k in col_idx for k in ["Lucro_Bruto","Valor_Venda","Receita_Envio","Tarifa_Total_R$","Tarifa_Envio"]):
                 ws.write_formula(f"{C('Lucro_Bruto')}{r}", 
                                  f"=IFERROR({C('Valor_Venda')}{r}+{C('Receita_Envio')}{r}-{C('Tarifa_Total_R$')}{r}-{C('Tarifa_Envio')}{r},0)")
