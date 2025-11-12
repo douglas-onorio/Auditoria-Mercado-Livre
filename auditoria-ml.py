@@ -318,12 +318,11 @@ if uploaded_file and df is not None:
 
         total_tarifa_venda = total_tarifa_total = 0
 
-        # Cálculo e atribuição individual
+        # --- cálculo e atribuição individual ---
         for j in subset.index:
             preco_unit = float(subset.loc[j, "Preco_Unitario_Item"] or 0)
             tipo_anuncio = str(subset.loc[j, "Tipo_Anuncio"]).lower()
 
-            # Determina percentual e tarifa fixa pelo tipo de anúncio
             perc = 0.17 if "premium" in tipo_anuncio else 0.12
             tarifa_fixa = (
                 6.75 if preco_unit < 79
@@ -343,10 +342,8 @@ if uploaded_file and df is not None:
             proporcao_unidades = unidades_item / total_unidades
             frete_item = round(frete_total_pacote * proporcao_unidades, 2)
 
-            # Rateio da embalagem automaticamente
             custo_embalagem_unit = round(float(custo_embalagem) / qtd, 2)
 
-            # Aplica nos filhos
             df.loc[j, "Valor_Venda"] = valor_item_total
             df.loc[j, "Valor_Recebido"] = valor_recebido_item
             df.loc[j, "Tarifa_Percentual_%"] = perc * 100
@@ -370,12 +367,20 @@ if uploaded_file and df is not None:
         df.loc[i, "Tarifa_Fixa_R$"] = None
         df.loc[i, "Origem_Pacote"] = "PACOTE"
 
-    # === AJUSTE FINAL DO CUSTO DE EMBALAGEM (RATEIO MANTIDO E AUTOMÁTICO) ===
+    # === NORMALIZA CAMPOS NUMÉRICOS ===
+    for col_fix in ["Tarifa_Venda", "Tarifa_Fixa_R$", "Tarifa_Total_R$", "Tarifa_Envio", "Custo_Embalagem"]:
+        if col_fix in df.columns:
+            df[col_fix] = pd.to_numeric(df[col_fix], errors="coerce").fillna(0).round(2)
+
+    for col_fix in ["Tarifa_Venda", "Tarifa_Envio", "Tarifa_Total_R$"]:
+        if col_fix in df.columns:
+            df[col_fix] = df[col_fix].abs().round(2)
+
+    # === AJUSTE ÚNICO DE RATEIO DE EMBALAGEM ===
     if "Custo_Embalagem" in df.columns:
         mask_mae = df["Estado"].astype(str).str.contains("Pacote de", case=False, na=False)
         mask_filho = df["Origem_Pacote"].astype(str).str.endswith("-PACOTE")
 
-        # Rateio automático com base no menu lateral
         for idx in df.loc[mask_mae].index:
             venda_pai = df.loc[idx, "Venda"]
             filhos = df[df["Origem_Pacote"] == f"{venda_pai}-PACOTE"]
@@ -385,56 +390,7 @@ if uploaded_file and df is not None:
                 df.loc[filhos.index, "Custo_Embalagem"] = custo_unit
                 df.loc[idx, "Custo_Embalagem"] = round(custo_unit * qtd, 2)
 
-        # Itens fora de pacotes usam valor fixo
         df.loc[~mask_mae & ~mask_filho, "Custo_Embalagem"] = round(float(custo_embalagem), 2)
-
-    # === NORMALIZA CAMPOS PÓS-PACOTES ===
-    for col_fix in ["Tarifa_Venda", "Tarifa_Fixa_R$", "Tarifa_Total_R$", "Tarifa_Envio", "Custo_Embalagem"]:
-        if col_fix in df.columns:
-            df[col_fix] = pd.to_numeric(df[col_fix], errors="coerce").fillna(0).round(2)
-
-    # Corrige frete e tarifas negativas (alguns relatórios do ML trazem valores invertidos)
-    for col_fix in ["Tarifa_Envio", "Tarifa_Total_R$", "Tarifa_Venda"]:
-        if col_fix in df.columns:
-            df[col_fix] = df[col_fix].abs().round(2)
-
-    # === AJUSTE DO CUSTO DE EMBALAGEM ===
-    if "Custo_Embalagem" in df.columns:
-        mask_mae = df["Estado"].astype(str).str.contains("Pacote de", case=False, na=False)
-        mask_filho = df["Origem_Pacote"].astype(str).str.endswith("-PACOTE")
-
-        # Filhos — mantém o rateio calculado no loop anterior (sem sobrescrever)
-        df.loc[mask_filho, "Custo_Embalagem"] = df.loc[mask_filho, "Custo_Embalagem"].astype(float).round(2)
-
-        # Linha-mãe — soma dos custos dos filhos (mantendo a proporção original)
-        for idx in df.loc[mask_mae].index:
-            venda_pai = df.loc[idx, "Venda"]
-            filhos = df[df["Origem_Pacote"] == f"{venda_pai}-PACOTE"]
-            if not filhos.empty:
-                total_embalagem = round(filhos["Custo_Embalagem"].sum(), 2)
-                df.loc[idx, "Custo_Embalagem"] = total_embalagem
-
-        # Itens que não fazem parte de pacotes continuam com o valor do menu lateral
-        df.loc[~mask_mae & ~mask_filho, "Custo_Embalagem"] = round(float(custo_embalagem), 2)
-        
-    # === NORMALIZA CAMPOS PÓS-PACOTES ===
-    # Converte campos numéricos para garantir consistência
-    for col_fix in ["Tarifa_Venda", "Tarifa_Fixa_R$", "Tarifa_Total_R$", "Tarifa_Envio", "Custo_Embalagem"]:
-        if col_fix in df.columns:
-            df[col_fix] = pd.to_numeric(df[col_fix], errors="coerce").fillna(0).round(2)
-
-    # Corrige frete e tarifas negativas (alguns relatórios do ML trazem valores invertidos)
-    if "Tarifa_Envio" in df.columns:
-        df["Tarifa_Envio"] = df["Tarifa_Envio"].abs().round(2)
-    if "Tarifa_Total_R$" in df.columns:
-        df["Tarifa_Total_R$"] = df["Tarifa_Total_R$"].abs().round(2)
-    if "Tarifa_Venda" in df.columns:
-        df["Tarifa_Venda"] = df["Tarifa_Venda"].abs().round(2)
-        
-    # Recalcula Tarifa_Total_R$ caso esteja zerada
-    if {"Tarifa_Total_R$", "Tarifa_Venda", "Tarifa_Fixa_R$"}.issubset(df.columns):
-        mask_na = df["Tarifa_Total_R$"].isna() | (df["Tarifa_Total_R$"] == 0)
-        df.loc[mask_na, "Tarifa_Total_R$"] = (df.loc[mask_na, "Tarifa_Venda"] + df.loc[mask_na, "Tarifa_Fixa_R$"]).round(2)
 
     # === VALIDAÇÃO DOS PACOTES ===
     df["Tarifa_Validada_ML"] = ""
@@ -588,31 +544,6 @@ if uploaded_file and df is not None:
         else "⚠️ Acima da Margem" if x["%Diferença"] > margem_limite
         else "✅ Normal", axis=1
     )
-
-    # === AJUSTE FINAL DO CUSTO DE EMBALAGEM (RATEIO MANTIDO E AUTOMÁTICO) ===
-    if "Custo_Embalagem" in df.columns:
-        # Identifica pacotes
-        mask_mae = df["Estado"].astype(str).str.contains("Pacote de", case=False, na=False)
-        mask_filho = df["Origem_Pacote"].astype(str).str.endswith("-PACOTE")
-
-        # --- 1. Aplica rateio automático (mantendo o valor total configurado no menu lateral)
-        for idx in df.loc[mask_mae].index:
-            venda_pai = df.loc[idx, "Venda"]
-            filhos = df[df["Origem_Pacote"] == f"{venda_pai}-PACOTE"]
-
-            if not filhos.empty:
-                qtd = len(filhos)
-                valor_total = float(custo_embalagem)
-                custo_unit = round(valor_total / qtd, 2)
-
-                # aplica o custo rateado nos filhos
-                df.loc[filhos.index, "Custo_Embalagem"] = custo_unit
-
-                # garante que o pai mostre o total somado
-                df.loc[idx, "Custo_Embalagem"] = round(custo_unit * qtd, 2)
-
-        # --- 2. Itens fora de pacotes usam o valor fixo do menu
-        df.loc[~mask_mae & ~mask_filho, "Custo_Embalagem"] = round(float(custo_embalagem), 2)
 
     df["Custo_Fiscal"] = (df["Valor_Venda"] * (custo_fiscal / 100)).round(2)
 
