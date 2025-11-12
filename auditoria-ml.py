@@ -358,11 +358,31 @@ if uploaded_file and df is not None:
         df.loc[i, "Origem_Pacote"] = "PACOTE"
         df.loc[i, ["Lucro_Real", "Lucro_Liquido", "Margem_Final_%", "Markup_%"]] = 0
 
-    # === AJUSTA ITENS ISOLADOS ===
+    # === NORMALIZA CAMPOS PÓS-PACOTES ===
+    for col_fix in ["Tarifa_Venda", "Tarifa_Fixa_R$", "Tarifa_Total_R$", "Tarifa_Envio", "Custo_Embalagem"]:
+        if col_fix in df.columns:
+            df[col_fix] = pd.to_numeric(df[col_fix], errors="coerce").fillna(0).round(2)
+
+    # Corrige frete e tarifas negativas (alguns relatórios do ML trazem valores invertidos)
+    for col_fix in ["Tarifa_Envio", "Tarifa_Total_R$", "Tarifa_Venda"]:
+        if col_fix in df.columns:
+            df[col_fix] = df[col_fix].abs().round(2)
+
+    # === AJUSTE DO CUSTO DE EMBALAGEM ===
     if "Custo_Embalagem" in df.columns:
         mask_mae = df["Estado"].astype(str).str.contains("Pacote de", case=False, na=False)
         mask_filho = df["Origem_Pacote"].astype(str).str.endswith("-PACOTE")
-        df.loc[~mask_mae & ~mask_filho, "Custo_Embalagem"] = round(custo_embalagem, 2)
+
+        # Linha-mãe: soma os filhos (mantendo o rateio dos filhos)
+        for idx in df.loc[mask_mae].index:
+            venda_pai = df.loc[idx, "Venda"]
+            filhos = df[df["Origem_Pacote"] == f"{venda_pai}-PACOTE"]
+            if not filhos.empty:
+                df.loc[idx, "Custo_Embalagem"] = round(filhos["Custo_Embalagem"].sum(), 2)
+
+        # Itens fora de pacote → custo fixo global
+        df.loc[~mask_mae & ~mask_filho, "Custo_Embalagem"] = round(float(custo_embalagem), 2)
+)
 
 
     # === NORMALIZA CAMPOS PÓS-PACOTES ===
@@ -383,22 +403,6 @@ if uploaded_file and df is not None:
     if {"Tarifa_Total_R$", "Tarifa_Venda", "Tarifa_Fixa_R$"}.issubset(df.columns):
         mask_na = df["Tarifa_Total_R$"].isna() | (df["Tarifa_Total_R$"] == 0)
         df.loc[mask_na, "Tarifa_Total_R$"] = (df.loc[mask_na, "Tarifa_Venda"] + df.loc[mask_na, "Tarifa_Fixa_R$"]).round(2)
-
-    # === AJUSTE DEFINITIVO DO CUSTO DE EMBALAGEM ===
-    if "Custo_Embalagem" in df.columns:
-        mask_mae = df["Estado"].astype(str).str.contains("Pacote de", case=False, na=False)
-        mask_filho = df["Origem_Pacote"].astype(str).str.endswith("-PACOTE")
-
-        # 🔹 1. Linha-mãe → soma dos filhos (total do pacote)
-        for idx in df.loc[mask_mae].index:
-            venda_pai = df.loc[idx, "Venda"]
-            filhos = df[df["Origem_Pacote"] == f"{venda_pai}-PACOTE"]
-            if not filhos.empty:
-                total_embalagem = round(filhos["Custo_Embalagem"].sum(), 2)
-                df.loc[idx, "Custo_Embalagem"] = total_embalagem
-
-        # 🔹 2. Itens fora de pacote → custo total normal
-        df.loc[~mask_mae & ~mask_filho, "Custo_Embalagem"] = round(custo_embalagem, 2)
 
     # === VALIDAÇÃO DOS PACOTES ===
     df["Tarifa_Validada_ML"] = ""
