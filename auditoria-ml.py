@@ -861,12 +861,32 @@ if uploaded_file and df is not None:
     with pd.ExcelWriter(output_df, engine="xlsxwriter") as writer:
         df.to_excel(writer, index=False, sheet_name="Auditoria_Completa")
     output_df.seek(0)
-    # === NORMALIZAÇÃO DE MARGENS / MARKUP ===
-    df.loc[df["Valor_Venda"] <= 0, ["Margem_Liquida_%", "Margem_Final_%"]] = 0
-    df.loc[df["Custo_Produto_Total"] <= 0, ["Markup_%"]] = 0
-    for col in ["Margem_Liquida_%", "Margem_Final_%", "Markup_%"]:
-        if col in df.columns:
-            df[col] = df[col].clip(lower=-500, upper=500).round(2)
+    # === CORREÇÃO PONTUAL: MARGENS ERRADAS EM PACOTES AGRUPADOS ===
+    # Identifica linhas-mãe de pacotes (ex: "Pacote de X produtos")
+    mask_pacote_mae = df["Estado"].astype(str).str.contains("Pacote de", case=False, na=False)
+    
+    # Nessas linhas, zera margens e markups, pois não fazem sentido financeiro direto
+    df.loc[mask_pacote_mae, ["Margem_Liquida_%", "Margem_Final_%", "Markup_%"]] = 0.0
+
+    # Para itens filhos de pacotes, recalcula margem apenas se o Valor_Venda for válido
+    mask_pacote_filho = df["Origem_Pacote"].astype(str).str.endswith("-PACOTE", na=False)
+    if "Lucro_Liquido" in df.columns and "Valor_Venda" in df.columns:
+        df.loc[mask_pacote_filho, "Margem_Final_%"] = (
+            df.loc[mask_pacote_filho, "Lucro_Liquido"] /
+            df.loc[mask_pacote_filho, "Valor_Venda"].replace(0, np.nan)
+        ).clip(-500, 500).round(4)
+
+    if "Lucro_Real" in df.columns and "Valor_Venda" in df.columns:
+        df.loc[mask_pacote_filho, "Margem_Liquida_%"] = (
+            df.loc[mask_pacote_filho, "Lucro_Real"] /
+            df.loc[mask_pacote_filho, "Valor_Venda"].replace(0, np.nan)
+        ).clip(-500, 500).round(4)
+
+    if "Lucro_Liquido" in df.columns and "Custo_Produto_Total" in df.columns:
+        df.loc[mask_pacote_filho, "Markup_%"] = (
+            df.loc[mask_pacote_filho, "Lucro_Liquido"] /
+            df.loc[mask_pacote_filho, "Custo_Produto_Total"].replace(0, np.nan)
+        ).clip(-500, 500).round(4)
 
     # === EXPORTAÇÃO FINAL COMPLETA COM FÓRMULAS E CORES ===
     st.markdown("---")
