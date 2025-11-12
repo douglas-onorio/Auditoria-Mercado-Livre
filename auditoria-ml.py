@@ -550,14 +550,24 @@ if uploaded_file and df is not None:
         else "✅ Normal", axis=1
     )
 
-    # Ajusta custo de embalagem na linha-mãe (soma total dos filhos)
-    if "Origem_Pacote" in df.columns and "Custo_Embalagem" in df.columns:
-        pacotes_mae = df[df["Estado"].str.contains("Pacote de", case=False, na=False)]
-        for idx in pacotes_mae.index:
+    # === AJUSTE FINAL DO CUSTO DE EMBALAGEM (RATEIO MANTIDO) ===
+    if "Custo_Embalagem" in df.columns:
+        mask_mae = df["Estado"].astype(str).str.contains("Pacote de", case=False, na=False)
+        mask_filho = df["Origem_Pacote"].astype(str).str.endswith("-PACOTE")
+
+        # Mantém o rateio já calculado para os filhos
+        df.loc[mask_filho, "Custo_Embalagem"] = df.loc[mask_filho, "Custo_Embalagem"].astype(float).round(2)
+
+        # Linha-mãe: soma dos filhos
+        for idx in df.loc[mask_mae].index:
             venda_pai = df.loc[idx, "Venda"]
             filhos = df[df["Origem_Pacote"] == f"{venda_pai}-PACOTE"]
             if not filhos.empty:
-                df.loc[idx, "Custo_Embalagem"] = round(filhos["Custo_Embalagem"].sum(), 2)
+                total_embalagem = round(filhos["Custo_Embalagem"].sum(), 2)
+                df.loc[idx, "Custo_Embalagem"] = total_embalagem
+
+        # Itens fora de pacotes → mantém custo padrão fixo
+        df.loc[~mask_mae & ~mask_filho, "Custo_Embalagem"] = round(custo_embalagem, 2)
 
     df["Custo_Fiscal"] = (df["Valor_Venda"] * (custo_fiscal / 100)).round(2)
 
