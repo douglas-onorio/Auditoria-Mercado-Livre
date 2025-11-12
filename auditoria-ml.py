@@ -961,27 +961,33 @@ if uploaded_file and df is not None:
         def C(name): return col_letter(col_idx[name])
 
         for r in range(startrow+1, startrow + n + 1):
-            # Lucro_Bruto = Valor_Venda + Receita_Envio - Tarifa_Total_R$ - Tarifa_Envio
+            linha_idx = r - (startrow + 1)
+            tipo = str(df_export.iloc[linha_idx].get("Tipo_Anuncio", "")).lower()
+
+            # Se for linha-mãe de pacote → grava zeros, sem fórmulas
+            if "agrupado (pacotes" in tipo:
+                for col in ["Lucro_Bruto", "Lucro_Real", "Lucro_Liquido",
+                            "Margem_Liquida_%", "Margem_Final_%", "Markup_%"]:
+                    if col in col_idx:
+                        ws.write_number(r-1, col_idx[col], 0, fmt_money if "Lucro" in col else fmt_pct)
+                continue  # pula as fórmulas abaixo
+
+            # Caso contrário (normal ou item filho), aplica as fórmulas normalmente
             if all(k in col_idx for k in ["Lucro_Bruto","Valor_Venda","Receita_Envio","Tarifa_Total_R$","Tarifa_Envio"]):
                 ws.write_formula(f"{C('Lucro_Bruto')}{r}", 
                                  f"=IFERROR({C('Valor_Venda')}{r}+{C('Receita_Envio')}{r}-{C('Tarifa_Total_R$')}{r}-{C('Tarifa_Envio')}{r},0)")
-            # Lucro_Real = Lucro_Bruto - Custo_Embalagem - Custo_Fiscal
             if all(k in col_idx for k in ["Lucro_Real","Lucro_Bruto","Custo_Embalagem","Custo_Fiscal"]):
                 ws.write_formula(f"{C('Lucro_Real')}{r}", 
                                  f"=IFERROR({C('Lucro_Bruto')}{r}-{C('Custo_Embalagem')}{r}-{C('Custo_Fiscal')}{r},0)")
-            # Margem_Liquida_% = Lucro_Real / Valor_Venda
             if all(k in col_idx for k in ["Margem_Liquida_%","Lucro_Real","Valor_Venda"]):
                 ws.write_formula(f"{C('Margem_Liquida_%')}{r}", 
                                  f"=IFERROR({C('Lucro_Real')}{r}/{C('Valor_Venda')}{r},0)")
-            # Lucro_Liquido = Lucro_Real - Custo_Produto_Total
             if all(k in col_idx for k in ["Lucro_Liquido","Lucro_Real","Custo_Produto_Total"]):
                 ws.write_formula(f"{C('Lucro_Liquido')}{r}", 
                                  f"=IFERROR({C('Lucro_Real')}{r}-{C('Custo_Produto_Total')}{r},0)")
-            # Margem_Final_% = Lucro_Liquido / Valor_Venda
             if all(k in col_idx for k in ["Margem_Final_%","Lucro_Liquido","Valor_Venda"]):
                 ws.write_formula(f"{C('Margem_Final_%')}{r}", 
                                  f"=IFERROR({C('Lucro_Liquido')}{r}/{C('Valor_Venda')}{r},0)")
-            # Markup_% = Lucro_Liquido / Custo_Produto_Total
             if all(k in col_idx for k in ["Markup_%","Lucro_Liquido","Custo_Produto_Total"]):
                 ws.write_formula(f"{C('Markup_%')}{r}", 
                                  f"=IFERROR({C('Lucro_Liquido')}{r}/{C('Custo_Produto_Total')}{r},0)")
