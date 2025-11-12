@@ -378,13 +378,15 @@ if uploaded_file and df is not None:
         mask_mae = df["Estado"].astype(str).str.contains("Pacote de", case=False, na=False)
         mask_filho = df["Origem_Pacote"].astype(str).str.endswith("-PACOTE")
 
-        # 🔹 1. Mãe do pacote → mantém o custo total configurado (ex: 3,00)
-        df.loc[mask_mae, "Custo_Embalagem"] = round(custo_embalagem, 2)
+        # 🔹 1. Linha-mãe → soma dos filhos (total do pacote)
+        for idx in df.loc[mask_mae].index:
+            venda_pai = df.loc[idx, "Venda"]
+            filhos = df[df["Origem_Pacote"] == f"{venda_pai}-PACOTE"]
+            if not filhos.empty:
+                total_embalagem = round(filhos["Custo_Embalagem"].sum(), 2)
+                df.loc[idx, "Custo_Embalagem"] = total_embalagem
 
-        # 🔹 2. Filhos do pacote → mantém o rateio calculado, não sobrescreve nada
-        # Nenhuma alteração aqui — só garantimos que não sejam afetados
-
-        # 🔹 3. Itens fora de pacote → custo padrão total (ex: 3,00)
+        # 🔹 2. Itens fora de pacote → custo total normal
         df.loc[~mask_mae & ~mask_filho, "Custo_Embalagem"] = round(custo_embalagem, 2)
 
     # === VALIDAÇÃO DOS PACOTES ===
@@ -792,6 +794,7 @@ if uploaded_file and df is not None:
         coluna_unidades, "Valor_Venda", "Valor_Recebido",
         "Tarifa_Venda", "Tarifa_Percentual_%", "Tarifa_Fixa_R$", "Tarifa_Total_R$",
         "Tarifa_Envio", "Cancelamentos",
+        "Custo_Embalagem", "Custo_Fiscal",
         "Lucro_Real", "Margem_Liquida_%", "Status", "Origem_Pacote"
     ]
 
