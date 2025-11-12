@@ -888,7 +888,7 @@ if uploaded_file and df is not None:
             df.loc[mask_pacote_filho, "Custo_Produto_Total"].replace(0, np.nan)
         ).clip(-500, 500).round(4)
 
-# === EXPORTAÇÃO FINAL COMPLETA COM FÓRMULAS E CORES (VERSÃO CORRIGIDA) ===
+# === EXPORTAÇÃO FINAL COMPLETA COM FÓRMULAS E CORES (VERSÃO FINAL CORRIGIDA) ===
 st.markdown("---")
 st.subheader("📤 Exportar Relatório de Auditoria Completo")
 
@@ -908,19 +908,19 @@ df_export = df[[c for c in colunas_exportar if c in df.columns]].copy()
 # Converte % para fração ANTES de exportar
 for col in ["Tarifa_Percentual_%", "Margem_Liquida_%", "Margem_Final_%", "Markup_%"]:
     if col in df_export.columns:
-        # Garante que a conversão só ocorra se o valor for > 1 (evita dividir 0.12 para 0.0012)
         df_export[col] = pd.to_numeric(df_export[col], errors='coerce').apply(lambda x: x / 100 if pd.notna(x) and abs(x) > 1 else x).fillna(0)
 
 output = BytesIO()
 with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-    # Escreve os dados sem formatação inicial para ter controle total
     df_export.to_excel(writer, index=False, sheet_name="Auditoria", header=False, startrow=1)
     wb = writer.book
     ws = writer.sheets["Auditoria"]
 
-    # === FORMATOS (NORMAL, PACOTE E ITEM) ===
-    # Formatos base
-    fmt_header = wb.add_format({"bold": True, "bg_color": "#FFD966", "align": "center", "valign": "vcenter", "border": 1})
+    # === FORMATOS ===
+    # ✅ CABEÇALHO COM FUNDO BRANCO
+    fmt_header = wb.add_format({"bold": True, "bg_color": "#FFFFFF", "align": "center", "valign": "vcenter", "border": 1})
+
+    # Formatos para linhas normais (fundo branco)
     fmt_money = wb.add_format({'num_format': 'R$ #,##0.00', 'border': 1})
     fmt_pct = wb.add_format({'num_format': '0.00%', 'border': 1})
     fmt_int = wb.add_format({'num_format': '0', 'border': 1})
@@ -940,31 +940,27 @@ with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
 
     # === APLICA CABEÇALHO E LARGURA DAS COLUNAS ===
     headers = list(df_export.columns)
-    ws.set_row(0, 22) # Altura da linha do cabeçalho
+    ws.set_row(0, 22)
     for j, col_name in enumerate(headers):
-        ws.write(0, j, col_name, fmt_header)
-        # Define largura da coluna
-        if col_name in ["Unidades"]:
-            ws.set_column(j, j, 10)
-        elif "%" in col_name:
-            ws.set_column(j, j, 12)
-        elif any(x in col_name for x in ["Valor", "Lucro", "Custo", "Tarifa", "Receita"]) and "%" not in col_name:
-            ws.set_column(j, j, 16)
-        else:
-            ws.set_column(j, j, 20)
+        ws.write(0, j, col_name, fmt_header) # Usa o novo formato de cabeçalho
+        if col_name in ["Unidades"]: ws.set_column(j, j, 10)
+        elif "%" in col_name: ws.set_column(j, j, 12)
+        elif any(x in col_name for x in ["Valor", "Lucro", "Custo", "Tarifa", "Receita"]) and "%" not in col_name: ws.set_column(j, j, 16)
+        else: ws.set_column(j, j, 20)
 
     # === FUNÇÕES DE AJUDA PARA FÓRMULAS ===
-    def col_letter(idx):
-        s = ""; idx += 1
-        while idx > 0:
-            idx, r = divmod(idx - 1, 26)
-            s = chr(65 + r) + s
-        return s
     col_idx = {name: i for i, name in enumerate(headers)}
-    def C(name): return col_letter(col_idx.get(name, -1))
+    def C(name):
+        idx = col_idx.get(name, -1)
+        if idx == -1: return ""
+        s = ""
+        while idx >= 0:
+            s = chr(idx % 26 + 65) + s
+            idx = idx // 26 - 1
+        return s
 
-    # === LOOP PRINCIPAL PARA APLICAR FORMATOS E FÓRMULAS CÉLULA A CÉLULA ===
-    for i, (_, row_data) in enumerate(df_export.iterrows(), start=2): # Linha 2 do Excel
+    # === LOOP PRINCIPAL PARA APLICAR FORMATOS E FÓRMULAS ===
+    for i, (idx, row_data) in enumerate(df_export.iterrows(), start=2):
         tipo_anuncio = str(row_data.get("Tipo_Anuncio", "")).lower()
         is_mae_pacote = "agrupado (pacotes" in tipo_anuncio
         is_item_pacote = "agrupado (item" in tipo_anuncio
@@ -977,31 +973,38 @@ with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
         else:
             formats = {'money': fmt_money, 'pct': fmt_pct, 'int': fmt_int, 'txt': fmt_txt}
 
-        # Aplica fórmulas e formatos para colunas-chave
-        # Se for linha-mãe, força zeros e pula fórmulas complexas
-        if is_mae_pacote:
-            for col in ["Lucro_Bruto", "Lucro_Real", "Lucro_Liquido", "Margem_Liquida_%", "Margem_Final_%", "Markup_%"]:
-                if col in col_idx:
-                    fmt = formats['money'] if "Lucro" in col else formats['pct']
-                    ws.write_number(i - 1, col_idx[col], 0, fmt)
-            continue # Pula para a próxima linha após tratar a linha-mãe
+        # Itera sobre as colunas para aplicar o formato correto a cada célula
+        for j, col_name in enumerate(headers):
+            cell_value = row_data[col_name]
+            fmt = formats['txt'] # Formato padrão
+            if col_name in ["Unidades"]: fmt = formats['int']
+            elif "%" in col_name: fmt = formats['pct']
+            elif any(x in col_name for x in ["Valor", "Lucro", "Custo", "Tarifa", "Receita"]) and "%" not in col_name: fmt = formats['money']
 
-        # APLICA FÓRMULAS PARA LINHAS NORMAIS E ITENS DE PACOTE
-        if all(k in col_idx for k in ["Lucro_Bruto","Valor_Venda","Receita_Envio","Tarifa_Total_R$","Tarifa_Envio"]):
-            ws.write_formula(i-1, col_idx["Lucro_Bruto"], f"=IFERROR({C('Valor_Venda')}{i}+{C('Receita_Envio')}{i}-{C('Tarifa_Total_R$')}{i}-{C('Tarifa_Envio')}{i},0)", formats['money'])
-        if all(k in col_idx for k in ["Lucro_Real","Lucro_Bruto","Custo_Embalagem","Custo_Fiscal"]):
-            ws.write_formula(i-1, col_idx["Lucro_Real"], f"=IFERROR({C('Lucro_Bruto')}{i}-{C('Custo_Embalagem')}{i}-{C('Custo_Fiscal')}{i},0)", formats['money'])
-        if all(k in col_idx for k in ["Margem_Liquida_%","Lucro_Real","Valor_Venda"]):
-            ws.write_formula(i-1, col_idx["Margem_Liquida_%"], f"=IFERROR({C('Lucro_Real')}{i}/{C('Valor_Venda')}{i},0)", formats['pct'])
-        if all(k in col_idx for k in ["Lucro_Liquido","Lucro_Real","Custo_Produto_Total"]):
-            ws.write_formula(i-1, col_idx["Lucro_Liquido"], f"=IFERROR({C('Lucro_Real')}{i}-{C('Custo_Produto_Total')}{i},0)", formats['money'])
-        if all(k in col_idx for k in ["Margem_Final_%","Lucro_Liquido","Valor_Venda"]):
-            ws.write_formula(i-1, col_idx["Margem_Final_%"], f"=IFERROR({C('Lucro_Liquido')}{i}/{C('Valor_Venda')}{i},0)", formats['pct'])
-        if all(k in col_idx for k in ["Markup_%","Lucro_Liquido","Custo_Produto_Total"]):
-            ws.write_formula(i-1, col_idx["Markup_%"], f"=IFERROR({C('Lucro_Liquido')}{i}/{C('Custo_Produto_Total')}{i},0)", formats['pct'])
+            # Escreve o valor com o formato correto (sem fórmulas por enquanto)
+            if pd.isna(cell_value):
+                ws.write_blank(i - 1, j, None, fmt)
+            elif isinstance(cell_value, (int, float)):
+                ws.write_number(i - 1, j, cell_value, fmt)
+            else:
+                ws.write_string(i - 1, j, str(cell_value), fmt)
+
+        # Se não for linha-mãe, sobrescreve as células necessárias com FÓRMULAS
+        if not is_mae_pacote:
+            if all(k in col_idx for k in ["Lucro_Bruto","Valor_Venda","Receita_Envio","Tarifa_Total_R$","Tarifa_Envio"]):
+                ws.write_formula(i-1, col_idx["Lucro_Bruto"], f"=IFERROR({C('Valor_Venda')}{i}+{C('Receita_Envio')}{i}-{C('Tarifa_Total_R$')}{i}-{C('Tarifa_Envio')}{i},0)", formats['money'])
+            if all(k in col_idx for k in ["Lucro_Real","Lucro_Bruto","Custo_Embalagem","Custo_Fiscal"]):
+                ws.write_formula(i-1, col_idx["Lucro_Real"], f"=IFERROR({C('Lucro_Bruto')}{i}-{C('Custo_Embalagem')}{i}-{C('Custo_Fiscal')}{i},0)", formats['money'])
+            if all(k in col_idx for k in ["Margem_Liquida_%","Lucro_Real","Valor_Venda"]):
+                ws.write_formula(i-1, col_idx["Margem_Liquida_%"], f"=IFERROR({C('Lucro_Real')}{i}/{C('Valor_Venda')}{i},0)", formats['pct'])
+            if all(k in col_idx for k in ["Lucro_Liquido","Lucro_Real","Custo_Produto_Total"]):
+                ws.write_formula(i-1, col_idx["Lucro_Liquido"], f"=IFERROR({C('Lucro_Real')}{i}-{C('Custo_Produto_Total')}{i},0)", formats['money'])
+            if all(k in col_idx for k in ["Margem_Final_%","Lucro_Liquido","Valor_Venda"]):
+                ws.write_formula(i-1, col_idx["Margem_Final_%"], f"=IFERROR({C('Lucro_Liquido')}{i}/{C('Valor_Venda')}{i},0)", formats['pct'])
+            if all(k in col_idx for k in ["Markup_%","Lucro_Liquido","Custo_Produto_Total"]):
+                ws.write_formula(i-1, col_idx["Markup_%"], f"=IFERROR({C('Lucro_Liquido')}{i}/{C('Custo_Produto_Total')}{i},0)", formats['pct'])
 
     # === ABA DE AJUDA (mantida como estava) ===
-    # ... (o código da aba de ajuda pode ser colado aqui sem alterações)
     ajuda_data = [
         ["Coluna","Descrição","Exemplo"],
         ["Venda","Número da venda no Mercado Livre.","200009741628937"],
@@ -1033,16 +1036,13 @@ with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
     df_ajuda = pd.DataFrame(ajuda_data[1:], columns=ajuda_data[0])
     df_ajuda.to_excel(writer, index=False, sheet_name="AJUDA")
     ws_ajuda = writer.sheets["AJUDA"]
-
     fmt_header_ajuda = wb.add_format({"bold": True, "bg_color": "#92D050", "align": "center", "valign": "vcenter", "border": 1})
     fmt_text_ajuda = wb.add_format({"text_wrap": True, "valign": "top", "border": 1})
     fmt_exemplo = wb.add_format({"italic": True, "color": "#666666", "border": 1})
-
     ws_ajuda.set_row(0, 28, fmt_header_ajuda)
     ws_ajuda.set_column("A:A", 25, fmt_text_ajuda)
     ws_ajuda.set_column("B:B", 80, fmt_text_ajuda)
     ws_ajuda.set_column("C:C", 25, fmt_exemplo)
-
 
 output.seek(0)
 st.download_button(
