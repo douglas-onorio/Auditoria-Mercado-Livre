@@ -963,16 +963,23 @@ if uploaded_file and df is not None:
         for r in range(startrow+1, startrow + n + 1):
             linha_idx = r - (startrow + 1)
             tipo = str(df_export.iloc[linha_idx].get("Tipo_Anuncio", "")).strip().lower()
+            origem = str(df_export.iloc[linha_idx].get("Origem_Pacote", "")).strip()
 
-            # 🚫 força zero fixo em qualquer linha que seja PACOTE (mãe)
-            if "pacote" in tipo and "item" not in tipo:
+            # 🧠 Detecta linha-mãe de pacote (Origem_Pacote == "PACOTE" ou tipo contém "agrupado (pacote")
+            is_mae_pacote = (
+                origem.upper() == "PACOTE" or
+                ("agrupado" in tipo and "item" not in tipo)
+            )
+
+            if is_mae_pacote:
+                # 🔒 força zero fixo e remove qualquer fórmula nessas linhas
                 for col in ["Lucro_Bruto", "Lucro_Real", "Lucro_Liquido",
                             "Margem_Liquida_%", "Margem_Final_%", "Markup_%"]:
                     if col in col_idx:
                         ws.write_number(r-1, col_idx[col], 0, fmt_money if "Lucro" in col else fmt_pct)
-                continue  # pula fórmulas abaixo
+                continue  # pula as fórmulas abaixo
 
-            # ✅ aplica fórmulas normais para os demais (unitários e filhos)
+            # ✅ aplica fórmulas normais para unitários e filhos
             if all(k in col_idx for k in ["Lucro_Bruto","Valor_Venda","Receita_Envio","Tarifa_Total_R$","Tarifa_Envio"]):
                 ws.write_formula(f"{C('Lucro_Bruto')}{r}", 
                                  f"=IFERROR({C('Valor_Venda')}{r}+{C('Receita_Envio')}{r}-{C('Tarifa_Total_R$')}{r}-{C('Tarifa_Envio')}{r},0)")
