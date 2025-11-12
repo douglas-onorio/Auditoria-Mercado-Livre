@@ -368,6 +368,15 @@ if uploaded_file and df is not None:
         if col_fix in df.columns:
             df[col_fix] = pd.to_numeric(df[col_fix], errors="coerce").fillna(0).round(2)
 
+    # Corrige frete e tarifas negativas (alguns relatórios do ML trazem valores invertidos)
+    if "Tarifa_Envio" in df.columns:
+        df["Tarifa_Envio"] = df["Tarifa_Envio"].abs().round(2)
+    if "Tarifa_Total_R$" in df.columns:
+        df["Tarifa_Total_R$"] = df["Tarifa_Total_R$"].abs().round(2)
+    if "Tarifa_Venda" in df.columns:
+        df["Tarifa_Venda"] = df["Tarifa_Venda"].abs().round(2)
+)
+
     # Recalcula Tarifa_Total_R$ caso esteja zerada
     if {"Tarifa_Total_R$", "Tarifa_Venda", "Tarifa_Fixa_R$"}.issubset(df.columns):
         mask_na = df["Tarifa_Total_R$"].isna() | (df["Tarifa_Total_R$"] == 0)
