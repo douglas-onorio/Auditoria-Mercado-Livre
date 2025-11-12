@@ -373,14 +373,18 @@ if uploaded_file and df is not None:
         mask_mae = df["Estado"].astype(str).str.contains("Pacote de", case=False, na=False)
         mask_filho = df["Origem_Pacote"].astype(str).str.endswith("-PACOTE")
 
-        # Linha-mãe: soma os filhos (mantendo o rateio dos filhos)
+        # Filhos — mantém o rateio calculado no loop anterior (sem sobrescrever)
+        df.loc[mask_filho, "Custo_Embalagem"] = df.loc[mask_filho, "Custo_Embalagem"].astype(float).round(2)
+
+        # Linha-mãe — soma dos custos dos filhos (mantendo a proporção original)
         for idx in df.loc[mask_mae].index:
             venda_pai = df.loc[idx, "Venda"]
             filhos = df[df["Origem_Pacote"] == f"{venda_pai}-PACOTE"]
             if not filhos.empty:
-                df.loc[idx, "Custo_Embalagem"] = round(filhos["Custo_Embalagem"].sum(), 2)
+                total_embalagem = round(filhos["Custo_Embalagem"].sum(), 2)
+                df.loc[idx, "Custo_Embalagem"] = total_embalagem
 
-        # Itens fora de pacote → custo fixo global
+        # Itens que não fazem parte de pacotes continuam com o valor do menu lateral
         df.loc[~mask_mae & ~mask_filho, "Custo_Embalagem"] = round(float(custo_embalagem), 2)
         
     # === NORMALIZA CAMPOS PÓS-PACOTES ===
