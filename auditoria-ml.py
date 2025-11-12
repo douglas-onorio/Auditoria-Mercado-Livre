@@ -36,9 +36,35 @@ st.title("📦 Auditoria Financeira Mercado Livre")
 
 # === CONFIGURAÇÕES ===
 st.sidebar.header("⚙️ Configurações")
-margem_limite = st.sidebar.number_input("Margem limite (%)", min_value=0, max_value=100, value=30, step=1)
-custo_embalagem = st.sidebar.number_input("Custo fixo de embalagem (R$)", min_value=0.0, value=3.0, step=0.5)
-custo_fiscal = st.sidebar.number_input("Custo fiscal (%)", min_value=0.0, value=10.0, step=0.5)
+
+# Margem Limite com balão de informação
+margem_limite = st.sidebar.number_input(
+    "Margem limite (%)",
+    min_value=0,
+    max_value=100,
+    value=30,
+    step=1,
+    help="Define o percentual máximo de taxas (Tarifas ML + Frete) que você considera aceitável por venda. Vendas com taxas acima deste limite serão marcadas como 'Fora da Margem' para análise."
+)
+
+# Custo de Embalagem com balão de informação
+custo_embalagem = st.sidebar.number_input(
+    "Custo fixo de embalagem (R$)",
+    min_value=0.0,
+    value=3.0,
+    step=0.5,
+    help="Custo fixo em R$ para a embalagem de cada venda. Em vendas de pacotes, este valor é rateado entre os itens."
+)
+
+# Custo Fiscal com balão de informação
+custo_fiscal = st.sidebar.number_input(
+    "Custo fiscal (%)",
+    min_value=0.0,
+    value=10.0,
+    step=0.5,
+    help="Percentual de imposto (Ex: Simples Nacional) que incide sobre o 'Valor da Venda'. O valor é calculado individualmente para cada item vendido."
+)
+
 
 st.sidebar.markdown(
     f"""
