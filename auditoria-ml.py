@@ -542,13 +542,6 @@ if uploaded_file and df is not None:
         else "✅ Normal", axis=1
     )
 
-    # === FINANCEIRO ===
-    # Mantém custo de embalagem já rateado em pacotes
-    if "Custo_Embalagem" not in df.columns:
-        df["Custo_Embalagem"] = custo_embalagem
-    else:
-        df["Custo_Embalagem"] = df["Custo_Embalagem"].fillna(custo_embalagem)
-
     # Ajusta custo de embalagem na linha-mãe (soma total dos filhos)
     if "Origem_Pacote" in df.columns and "Custo_Embalagem" in df.columns:
         pacotes_mae = df[df["Estado"].str.contains("Pacote de", case=False, na=False)]
