@@ -382,9 +382,7 @@ if uploaded_file and df is not None:
 
         # Itens fora de pacote → custo fixo global
         df.loc[~mask_mae & ~mask_filho, "Custo_Embalagem"] = round(float(custo_embalagem), 2)
-)
-
-
+        
     # === NORMALIZA CAMPOS PÓS-PACOTES ===
     # Converte campos numéricos para garantir consistência
     for col_fix in ["Tarifa_Venda", "Tarifa_Fixa_R$", "Tarifa_Total_R$", "Tarifa_Envio", "Custo_Embalagem"]:
