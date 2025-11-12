@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 from sku_utils import aplicar_custos
 import tempfile
-import numpy as np # Adicionado: necessário para usar np.nan no cálculo das margens
+import numpy as np
 
 # === VARIÁVEIS DE ESTADO E INICIALIZAÇÃO PARA EVITAR NAMEERROR ===
 # Inicializando as variáveis que seriam usadas no bloco de métricas,
@@ -53,14 +53,11 @@ Vendas com diferença **acima de {margem_limite}%** são classificadas como **an
 # === GESTÃO DE CUSTOS (INTEGRAÇÃO GOOGLE SHEETS) ===
 import gspread
 from google.oauth2.service_account import Credentials
-# import pandas as pd # Já importado
-# from datetime import datetime # Já importado
-# import streamlit as st # Já importado
 import json
-from sku_utils import aplicar_custos
 
 st.subheader("💰 Custos de Produtos (Google Sheets)")
 
+client = None
 try:
     # Escopos obrigatórios do Google Sheets e Drive
     scope = [
@@ -70,7 +67,6 @@ try:
 
     if "gcp_service_account" not in st.secrets:
         # Se estiver rodando localmente sem secrets, pode ser um problema.
-        # Mas mantemos a lógica original de levantar a exceção.
         raise ValueError("❌ Bloco [gcp_service_account] não encontrado em st.secrets.")
 
     info = dict(st.secrets["gcp_service_account"])
@@ -85,10 +81,6 @@ try:
 
 except Exception as e:
     st.error(f"❌ Erro ao autenticar com Google Sheets: {e}")
-    client = None
-
-# --- Garante que o client exista ---
-if "client" not in locals() or client is None:
     client = None
 
 SHEET_NAME = "CUSTOS_ML"  # nome da planilha no Google Sheets
@@ -143,6 +135,7 @@ def carregar_custos_google():
                 try:
                     val = float(v)
                     # Corrige apenas valores absurdos (erro de escala)
+                    # A lógica de correção de escala foi mantida como estava no script original
                     if val > 999:
                         val = val / 100
                     return round(val, 2)
@@ -261,11 +254,12 @@ if uploaded_file and df is not None:
     # Renomeia apenas o que consta no mapeamento
     df.rename(columns={c: col_map[c] for c in col_map if c in df.columns}, inplace=True)
 
-    # === REDISTRIBUI PACOTES (COM DETALHAMENTO DE TARIFAS E FRETE POR UNIDADE) ===
-    # import re # Já importado
-
-    def calcular_custo_fixo(preco_unit):
+    # === Funções de Cálculo de Tarifa (Mantidas do original) ===
+    # A Tarifa Fixa original está complexa, mas mantida para replicar a regra do usuário
+    def calcular_tarifa_fixa_unit(preco_unit):
+        """Calcula a Tarifa Fixa unitária (R$) com base na lógica fornecida no script original."""
         if preco_unit < 12.5:
+            # Replicando a lógica original
             return round(preco_unit * 0.5, 2)
         elif preco_unit < 30:
             return 6.25
@@ -277,20 +271,31 @@ if uploaded_file and df is not None:
             return 0.0
 
     def calcular_percentual(tipo_anuncio):
+        """Calcula o percentual de tarifa com base no tipo de anúncio."""
         tipo = str(tipo_anuncio).strip().lower()
         if "premium" in tipo:
             return 0.17
         elif "clássico" in tipo or "classico" in tipo:
             return 0.12
-        return 0.12
+        return 0.12 # Padrão para casos não identificados
 
     # Garante que todas as colunas necessárias existam
-    for col in ["Tarifa_Percentual_%", "Tarifa_Fixa_R$", "Tarifa_Total_R$", "Origem_Pacote", "Tarifa_Envio", "Valor_Item_Total"]:
+    for col in ["Tarifa_Percentual_%", "Tarifa_Fixa_R$", "Tarifa_Total_R$", 
+                "Origem_Pacote", "Valor_Item_Total", "Custo_Embalagem", "Tarifa_Venda_Calculada"]:
         if col not in df.columns:
             df[col] = None
 
+    # --- Conversões iniciais de valores para processamento
+    for c in ["Valor_Venda", "Valor_Recebido", "Tarifa_Venda", "Tarifa_Envio", "Cancelamentos", "Preco_Unitario"]:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0).abs().round(2)
+
     # === PROCESSA PACOTES AGRUPADOS (com cálculo de tarifas e rateio automático) ===
-    for i, row in df.iterrows():
+    df_pacotes = df[df["Estado"].astype(str).str.contains("Pacote de", case=False, na=False)].copy()
+    
+    indices_pacotes_filhos = []
+    
+    for i, row in df_pacotes.iterrows():
         estado = str(row.get("Estado", ""))
         match = re.search(r"Pacote de (\d+) produtos", estado, flags=re.IGNORECASE)
         if not match:
@@ -298,11 +303,16 @@ if uploaded_file and df is not None:
             continue
 
         qtd = int(match.group(1))
-        if i + 1 + qtd > len(df):
+        
+        # Encontra o índice inicial dos itens do pacote (assumindo que estão na sequência)
+        idx_inicio = i + 1
+        idx_fim = i + 1 + qtd
+        
+        if idx_fim > len(df):
             st.warning(f"⚠️ Pacote da venda {row.get('Venda', 'N/A')} na linha {i+6} está incompleto e foi ignorado.")
             continue
 
-        subset = df.iloc[i + 1 : i + 1 + qtd].copy()
+        subset = df.iloc[idx_inicio : idx_fim].copy()
         if subset.empty:
             continue
 
@@ -310,114 +320,144 @@ if uploaded_file and df is not None:
         total_recebido_pacote = float(row.get("Valor_Recebido", 0) or 0)
         frete_total_pacote = abs(float(row.get("Tarifa_Envio", 0) or 0))
 
-        col_preco_unitario = "Preco_Unitario" if "Preco_Unitario" in subset.columns else "Preço unitário de venda do anúncio (BRL)"
+        col_preco_unitario = "Preco_Unitario"
         subset["Preco_Unitario_Item"] = pd.to_numeric(subset[col_preco_unitario], errors="coerce").fillna(0)
 
-        soma_precos = subset["Preco_Unitario_Item"].sum()
-        total_unidades = subset[coluna_unidades].sum() or 1
+        soma_precos = subset["Preco_Unitario_Item"].sum() # Soma dos preços unitários dos itens no pacote
+        total_unidades_pacote = subset[coluna_unidades].sum() or 1
+        
+        total_tarifa_percentual_acumulada = 0
+        total_tarifa_fixa_acumulada = 0
+        
+        custo_embalagem_unit = round(float(custo_embalagem) / qtd, 2)
 
-        total_tarifa_venda = total_tarifa_total = 0
-
-        # --- cálculo e atribuição individual ---
+        # --- Cálculo e atribuição individual para ITENS FILHOS ---
         for j in subset.index:
             preco_unit = float(subset.loc[j, "Preco_Unitario_Item"] or 0)
             tipo_anuncio = str(subset.loc[j, "Tipo_Anuncio"]).lower()
-
-            perc = 0.17 if "premium" in tipo_anuncio else 0.12
-            tarifa_fixa = (
-                6.75 if preco_unit < 79
-                else 6.50 if preco_unit < 50
-                else 6.25 if preco_unit < 30
-                else round(preco_unit * 0.5, 2) if preco_unit < 12.5
-                else 0
-            )
-
             unidades_item = subset.loc[j, coluna_unidades]
+            
             valor_item_total = preco_unit * unidades_item
-            tarifa_percentual = round(valor_item_total * perc, 2)
-            tarifa_total = round(tarifa_percentual + (tarifa_fixa * unidades_item), 2)
+            
+            perc = calcular_percentual(tipo_anuncio)
+            tarifa_fixa = calcular_tarifa_fixa_unit(preco_unit)
 
+            tarifa_percentual = round(valor_item_total * perc, 2)
+            tarifa_fixa_total_item = round(tarifa_fixa * unidades_item, 2)
+            tarifa_total_calculada = round(tarifa_percentual + tarifa_fixa_total_item, 2)
+
+            # Rateio do Valor Recebido e Frete (mantido por proporção/unidades)
             proporcao_venda = (preco_unit / soma_precos) if soma_precos else 0
             valor_recebido_item = round(total_recebido_pacote * proporcao_venda, 2)
-            proporcao_unidades = unidades_item / total_unidades
+            proporcao_unidades = unidades_item / total_unidades_pacote
             frete_item = round(frete_total_pacote * proporcao_unidades, 2)
 
-            custo_embalagem_unit = round(float(custo_embalagem) / qtd, 2)
-
+            # Atribuição dos valores ao DataFrame principal
             df.loc[j, "Valor_Venda"] = valor_item_total
             df.loc[j, "Valor_Recebido"] = valor_recebido_item
             df.loc[j, "Tarifa_Percentual_%"] = perc * 100
             df.loc[j, "Tarifa_Fixa_R$"] = tarifa_fixa
+            # Tarifa_Venda (coluna do ML, agora contendo a tarifa percentual calculada para o rateio)
             df.loc[j, "Tarifa_Venda"] = tarifa_percentual
-            df.loc[j, "Tarifa_Total_R$"] = tarifa_total
+            df.loc[j, "Tarifa_Venda_Calculada"] = tarifa_percentual
+            df.loc[j, "Tarifa_Total_R$"] = tarifa_total_calculada # Tarifa Total (percentual + fixa)
             df.loc[j, "Tarifa_Envio"] = frete_item
             df.loc[j, "Custo_Embalagem"] = custo_embalagem_unit
             df.loc[j, "Origem_Pacote"] = f"{row['Venda']}-PACOTE"
-            df.loc[j, "Tipo_Anuncio"] = "Agrupado (Pacotes)"
+            df.loc[j, "Tipo_Anuncio"] = "Agrupado (Item)"
+            
+            indices_pacotes_filhos.append(j)
 
-            total_tarifa_venda += tarifa_percentual
-            total_tarifa_total += tarifa_total
-
-        # Linha mãe (pacote) — mostra totais
+            total_tarifa_percentual_acumulada += tarifa_percentual
+            total_tarifa_fixa_acumulada += tarifa_fixa_total_item
+        
+        # Linha mãe (pacote) — mostra totais calculados
         df.loc[i, "Tipo_Anuncio"] = "Agrupado (Pacotes)"
-        df.loc[i, "Tarifa_Venda"] = round(total_tarifa_venda, 2)
-        df.loc[i, "Tarifa_Total_R$"] = round(total_tarifa_total, 2)
+        df.loc[i, "Tarifa_Venda"] = round(total_tarifa_percentual_acumulada, 2) # Tarifa percentual total (pode ser usado para conferência)
+        df.loc[i, "Tarifa_Total_R$"] = round(total_tarifa_percentual_acumulada + total_tarifa_fixa_acumulada, 2)
         df.loc[i, "Custo_Embalagem"] = round(float(custo_embalagem), 2)
         df.loc[i, "Tarifa_Percentual_%"] = None
         df.loc[i, "Tarifa_Fixa_R$"] = None
         df.loc[i, "Origem_Pacote"] = "PACOTE"
 
-    # === NORMALIZA CAMPOS NUMÉRICOS ===
-    for col_fix in ["Tarifa_Venda", "Tarifa_Fixa_R$", "Tarifa_Total_R$", "Tarifa_Envio", "Custo_Embalagem"]:
+    
+    # === CORREÇÃO 1: APLICA TARIFA E TAXA FIXA EM VENDAS NÃO AGRUPADAS (Unitárias) ===
+    # Máscara para itens que não são pais e não são filhos (vendas simples)
+    mask_unitario = df.index.difference(df_pacotes.index).difference(indices_pacotes_filhos)
+
+    for i in mask_unitario:
+        row = df.loc[i]
+        
+        # Garante que Preco_Unitario existe
+        preco_unit = float(row.get("Preco_Unitario", 0) or 0)
+        tipo_anuncio = str(row.get("Tipo_Anuncio", "")).lower()
+        unidades_item = row.get(coluna_unidades, 1)
+
+        # O Valor_Venda (Receita por produtos) já é o valor total para esta linha unitária
+        valor_item_total = row["Valor_Venda"]
+        
+        perc = calcular_percentual(tipo_anuncio)
+        tarifa_fixa = calcular_tarifa_fixa_unit(preco_unit)
+
+        tarifa_percentual = round(valor_item_total * perc, 2)
+        tarifa_fixa_total_item = round(tarifa_fixa * unidades_item, 2)
+        tarifa_total_calculada = round(tarifa_percentual + tarifa_fixa_total_item, 2)
+        
+        # A Tarifa_Venda (coluna original do ML) *deve* conter a tarifa total (percentual + fixa).
+        # Usamos Tarifa_Total_R$ para conferência e Tarifa_Venda_Calculada para o valor percentual puro.
+        df.loc[i, "Tarifa_Percentual_%"] = perc * 100
+        df.loc[i, "Tarifa_Fixa_R$"] = tarifa_fixa
+        df.loc[i, "Tarifa_Venda_Calculada"] = tarifa_percentual
+        df.loc[i, "Tarifa_Total_R$"] = tarifa_total_calculada
+        # Custo de Embalagem: aplica o valor cheio
+        df.loc[i, "Custo_Embalagem"] = round(float(custo_embalagem), 2)
+
+    # === NORMALIZA CAMPOS NUMÉRICOS (Tarifas) ===
+    for col_fix in ["Tarifa_Venda", "Tarifa_Fixa_R$", "Tarifa_Total_R$", "Tarifa_Envio", "Custo_Embalagem", "Tarifa_Venda_Calculada"]:
         if col_fix in df.columns:
-            df[col_fix] = pd.to_numeric(df[col_fix], errors="coerce").fillna(0).round(2)
+            df[col_fix] = pd.to_numeric(df[col_fix], errors="coerce").fillna(0).abs().round(2)
 
-    for col_fix in ["Tarifa_Venda", "Tarifa_Envio", "Tarifa_Total_R$"]:
-        if col_fix in df.columns:
-            df[col_fix] = df[col_fix].abs().round(2)
+    # === CORREÇÃO 2: REFORÇA O RATEIO DO CUSTO DE EMBALAGEM ===
+    # Este bloco garante que o rateio de embalagem seja aplicado de forma consistente
+    mask_mae = df["Estado"].astype(str).str.contains("Pacote de", case=False, na=False)
+    mask_filho = df["Origem_Pacote"].astype(str).str.endswith("-PACOTE", na=False)
+    
+    # 1. Recalcula e aplica custo de embalagem para pacotes e filhos (garantindo correção)
+    for idx in df.loc[mask_mae].index:
+        venda_pai = df.loc[idx, "Venda"]
+        filhos = df[df["Origem_Pacote"] == f"{venda_pai}-PACOTE"]
+        if not filhos.empty:
+            qtd = len(filhos)
+            custo_unit = round(float(custo_embalagem) / qtd, 2)
+            df.loc[filhos.index, "Custo_Embalagem"] = custo_unit
+            df.loc[idx, "Custo_Embalagem"] = round(custo_unit * qtd, 2)
+        else:
+             # Se for mãe de pacote sem filhos válidos, assume custo total
+             df.loc[idx, "Custo_Embalagem"] = round(float(custo_embalagem), 2)
 
-    # === AJUSTE ÚNICO DE RATEIO DE EMBALAGEM ===
-    if "Custo_Embalagem" in df.columns:
-        mask_mae = df["Estado"].astype(str).str.contains("Pacote de", case=False, na=False)
-        mask_filho = df["Origem_Pacote"].astype(str).str.endswith("-PACOTE")
+    # 2. Aplica custo de embalagem total para vendas unitárias/simples
+    df.loc[~mask_mae & ~mask_filho, "Custo_Embalagem"] = round(float(custo_embalagem), 2)
 
-        for idx in df.loc[mask_mae].index:
-            venda_pai = df.loc[idx, "Venda"]
-            filhos = df[df["Origem_Pacote"] == f"{venda_pai}-PACOTE"]
-            if not filhos.empty:
-                qtd = len(filhos)
-                custo_unit = round(float(custo_embalagem) / qtd, 2)
-                df.loc[filhos.index, "Custo_Embalagem"] = custo_unit
-                df.loc[idx, "Custo_Embalagem"] = round(custo_unit * qtd, 2)
-
-        df.loc[~mask_mae & ~mask_filho, "Custo_Embalagem"] = round(float(custo_embalagem), 2)
-
-    # === VALIDAÇÃO DOS PACOTES ===
+    # === VALIDAÇÃO DOS PACOTES (Melhorada para usar Tarifa Total Calculada) ===
     df["Tarifa_Validada_ML"] = ""
-    mask_pacotes = df["Origem_Pacote"].notna()
-    for pacote in df.loc[mask_pacotes, "Origem_Pacote"].unique():
+    for pacote in df.loc[mask_filho, "Origem_Pacote"].unique():
         if not isinstance(pacote, str):
             continue
             
-        # Garante que estamos pegando apenas os pacotes filhos
-        if pacote.endswith("-PACOTE"):
-            filhos = df[df["Origem_Pacote"] == pacote]
+        venda_pai_id = pacote.split("-")[0]
+        pai = df[df["Venda"].astype(str).eq(venda_pai_id)]
+        filhos = df[df["Origem_Pacote"] == pacote]
             
-            # Tenta encontrar a linha pai (Venda original)
-            venda_pai_id = pacote.split("-")[0]
-            pai = df[df["Venda"].astype(str).eq(venda_pai_id)]
+        if not pai.empty:
+            # Soma das tarifas totais calculadas (percentual + fixa) + frete das filhas
+            soma_filhas_tarifas = filhos["Tarifa_Total_R$"].sum() + filhos["Tarifa_Envio"].sum()
             
-            if not pai.empty:
-                soma_filhas = filhos["Tarifa_Venda"].sum() + filhos["Tarifa_Envio"].sum()
-                tarifa_pai = pai["Tarifa_Venda"].sum() + pai["Tarifa_Envio"].sum()
-                
-                # Aplica o resultado da validação nas linhas filhas
-                df.loc[df["Origem_Pacote"] == pacote, "Tarifa_Validada_ML"] = "✔️" if abs(soma_filhas - tarifa_pai) < 1 else "❌"
+            # Tarifa ML reportada (Tarifa de Venda + Tarifa de Envio do PAI)
+            tarifa_pai_ml_reportada = pai["Tarifa_Venda"].iloc[0] + abs(pai["Tarifa_Envio"].iloc[0])
+            
+            # Usa a Tarifa Total reportada pelo ML como referência para a validação
+            df.loc[df["Origem_Pacote"] == pacote, "Tarifa_Validada_ML"] = "✔️" if abs(soma_filhas_tarifas - tarifa_pai_ml_reportada) < 1.01 else "❌"
 
-    # === CONVERSÕES ===
-    for c in ["Valor_Venda", "Valor_Recebido", "Tarifa_Venda", "Tarifa_Envio", "Cancelamentos", "Preco_Unitario"]:
-        if c in df.columns:
-            df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0).abs()
 
     # === AJUSTE SKU ===
     def limpar_sku(valor):
@@ -435,7 +475,7 @@ if uploaded_file and df is not None:
         df["SKU"] = df["SKU"].apply(limpar_sku)
 
     # === COMPLETA DADOS DE PACOTES COM SKUs E TÍTULOS AGRUPADOS ===
-    for i, row in df.iterrows():
+    for i, row in df.loc[mask_mae].iterrows():
         estado = str(row.get("Estado", ""))
         match = re.search(r"Pacote de (\d+) produtos", estado, flags=re.IGNORECASE)
         if not match:
@@ -443,11 +483,13 @@ if uploaded_file and df is not None:
 
         qtd = int(match.group(1))
 
-        # Garante que o subset esteja dentro dos limites novamente
-        if i + 1 + qtd > len(df):
+        idx_inicio = i + 1
+        idx_fim = i + 1 + qtd
+
+        if idx_fim > len(df):
             continue
 
-        subset = df.iloc[i + 1 : i + 1 + qtd].copy()
+        subset = df.iloc[idx_inicio : idx_fim].copy()
         if subset.empty:
             continue
 
@@ -523,7 +565,7 @@ if uploaded_file and df is not None:
             • Custos de envio.<br>
             • Custo fixo de embalagem e custo fiscal configurável.<br>
             • Quantidade total de unidades por venda.<br><br>
-            Lucro Real = Valor da venda − Tarifas − Frete − Embalagem − Custo fiscal.<br>
+            Lucro Real = Valor da venda − Tarifas (ML reportadas/calculadas) − Frete − Embalagem − Custo fiscal.<br>
             </div>
             """,
             unsafe_allow_html=True,
@@ -531,7 +573,9 @@ if uploaded_file and df is not None:
 
     df["Data"] = df["Data"].dt.strftime("%d/%m/%Y %H:%M")
 
-    # === AUDITORIA ===
+    # === AUDITORIA E CUSTOS INICIAIS ===
+    # A Tarifa_Venda é a tarifa PERCENTUAL calculada no loop de pacotes/unitários.
+    # O Valor_Recebido é o Total (BRL) do ML, que já é líquido das taxas.
     df["Verificacao_Cancelamento"] = df["Valor_Venda"] - (df["Tarifa_Venda"] + df["Tarifa_Envio"] + df["Cancelamentos"])
     df["Cancelamento_Correto"] = (df["Valor_Recebido"] == 0) & (abs(df["Verificacao_Cancelamento"]) <= 0.1)
     df["Diferença_R$"] = df["Valor_Venda"] - df["Valor_Recebido"]
@@ -553,9 +597,19 @@ if uploaded_file and df is not None:
     else:
         df["Receita_Envio"] = 0
 
-    # Lucro Bruto agora considera a receita de envio
+    # Lucro Bruto agora considera a Receita_Envio e as tarifas TOTAL (Tarifa_Venda original + Taxa Fixa, que é a Tarifa_Total_R$)
+    # Para ser coerente, usaremos a coluna Tarifa_Total_R$ que foi calculada/ajustada (Tarifa % + Taxa Fixa) para o Lucro Bruto.
+    # Se a Tarifa_Total_R$ for 0 (caso o cálculo falhe), usaremos a Tarifa_Venda original do ML (Valor líquido).
+    
+    # Cria uma coluna de tarifa ML Líquida: usa Tarifa_Total_R$ se for calculada, senão usa a Tarifa_Venda do ML (que é líquida)
+    df["Tarifa_Total_Liquida"] = df.apply(
+        lambda row: row["Tarifa_Total_R$"] if row["Origem_Pacote"] is not None or row["Tarifa_Total_R$"] > 0 else row["Tarifa_Venda"],
+        axis=1
+    )
+    df["Tarifa_Total_Liquida"] = df["Tarifa_Total_Liquida"].abs().round(2)
+    
     df["Lucro_Bruto"] = (
-        df["Valor_Venda"] + df["Receita_Envio"] - (df["Tarifa_Venda"] + df["Tarifa_Envio"])
+        df["Valor_Venda"] + df["Receita_Envio"] - (df["Tarifa_Total_Liquida"] + df["Tarifa_Envio"])
     ).round(2)
 
     df["Lucro_Real"] = (
@@ -570,16 +624,18 @@ if uploaded_file and df is not None:
 
             df = aplicar_custos(df, custo_df, coluna_unidades)
 
-
             # --- Custo Fiscal e Embalagem ---
-            # O custo fiscal já foi calculado sobre Valor_Venda (total), mantendo assim.
+            # Garante que as colunas existam após o merge
             if "Custo_Fiscal" not in df.columns:
                  df["Custo_Fiscal"] = 0.0
-            
             if "Custo_Embalagem" not in df.columns:
                  df["Custo_Embalagem"] = 0.0
             else:
                  df["Custo_Embalagem"] = pd.to_numeric(df["Custo_Embalagem"], errors="coerce").fillna(0)
+            
+            # Garante que Custo_Produto_Total exista
+            if "Custo_Produto_Total" not in df.columns:
+                df["Custo_Produto_Total"] = 0.0
 
             # --- Lucro e Margens completas ---
             # Lucro Líquido = Lucro Real (já com fiscal/embalagem) - Custo do Produto Total
@@ -615,7 +671,7 @@ if uploaded_file and df is not None:
         campos_financeiros = [
             "Lucro_Real", "Lucro_Liquido", "Margem_Liquida_%",
             "Margem_Final_%", "Markup_%", "Lucro_Bruto",
-            "Custo_Produto_Total"
+            "Custo_Produto_Total", "Tarifa_Total_Liquida", "Tarifa_Total_R$" # Zera as colunas de custo/lucro da linha mãe
         ]
         for campo in campos_financeiros:
             if campo in df.columns:
@@ -624,6 +680,11 @@ if uploaded_file and df is not None:
 
     # === EXCLUI CANCELAMENTOS DO CÁLCULO ===
     df_validas = df[df["Status"] != "🟦 Cancelamento Correto"].copy() # Cria uma cópia para evitar SettingWithCopyWarning
+    
+    # Exclui também os pais de pacotes
+    mask_validas = ~df_validas["Estado"].astype(str).str.contains("Pacote de", case=False, na=False, regex=False)
+    df_validas = df_validas[mask_validas]
+
 
     # === MÉTRICAS FINAIS (CÁLCULO) ===
     if custo_carregado:
@@ -636,7 +697,8 @@ if uploaded_file and df is not None:
         margem_media = df_validas["Margem_Liquida_%"].replace([np.inf, -np.inf], np.nan).mean()
 
     receita_total = df_validas["Valor_Venda"].sum()
-    total_vendas = len(df)
+    # A contagem de vendas deve ser feita no DF original, excluindo apenas cancelamentos corretos e pais de pacotes
+    total_vendas = len(df[~df["Estado"].astype(str).str.contains("Pacote de", case=False, na=False, regex=False)]) - cancelamentos
     fora_margem = (df["Status"] == "⚠️ Acima da Margem").sum()
     cancelamentos = (df["Status"] == "🟦 Cancelamento Correto").sum()
 
@@ -662,10 +724,14 @@ if uploaded_file and df is not None:
             df["Tipo_Anuncio"]
             .astype(str)
             .str.strip()
-            .replace(["nan", "None", ""], "Agrupado (Pacotes)")
+            .replace(["nan", "None", ""], "Unitário/Simples") # Ajustado para refletir o que é um item não agrupado
         )
+        
+        # Filtra as linhas 'mãe' de pacotes para o resumo estatístico
+        mask_nao_mae = ~df["Estado"].astype(str).str.contains("Pacote de", case=False, na=False, regex=False)
+        df_tipos = df[mask_nao_mae].copy()
 
-        tipo_counts = df["Tipo_Anuncio"].value_counts(dropna=False).reset_index()
+        tipo_counts = df_tipos["Tipo_Anuncio"].value_counts(dropna=False).reset_index()
         tipo_counts.columns = ["Tipo de Anúncio", "Quantidade"]
         tipo_counts["% Participação"] = (
             tipo_counts["Quantidade"] / tipo_counts["Quantidade"].sum() * 100
@@ -765,10 +831,11 @@ if uploaded_file and df is not None:
             st.warning("Nenhum registro encontrado para este SKU.")
         else:
             cols_to_display = [
-                "Produto", "Valor_Venda", "Tarifa_Venda", "Tarifa_Envio",
+                "Produto", "Valor_Venda", "Tarifa_Total_R$", "Tarifa_Envio",
                 "Custo_Embalagem", "Custo_Fiscal", "Lucro_Bruto", "Lucro_Real",
                 coluna_unidades, "Margem_Liquida_%"
             ]
+            # Usa Tarifa_Total_R$ para mostrar a tarifa calculada (percentual + fixa)
             filtro_display = filtro[[c for c in cols_to_display if c in filtro.columns]]
             st.write(filtro_display.dropna(axis=1, how="all"))
 
@@ -777,173 +844,26 @@ if uploaded_file and df is not None:
     st.subheader("📋 Itens Avaliados")
 
     colunas_vis = [
-        "Venda", "Data", "Produto", "SKU", "Tipo_Anuncio",
+        "Venda", "Data", "Produto", "SKU", "Tipo_Anuncio", "Status",
         coluna_unidades, "Valor_Venda", "Valor_Recebido",
         "Tarifa_Venda", "Tarifa_Percentual_%", "Tarifa_Fixa_R$", "Tarifa_Total_R$",
-        "Tarifa_Envio", "Cancelamentos",
-        "Custo_Embalagem", "Custo_Fiscal",
-        "Lucro_Real", "Margem_Liquida_%", "Status", "Origem_Pacote"
+        "Tarifa_Envio", "Cancelamentos", "Custo_Embalagem", "Custo_Fiscal",
+        "Custo_Produto_Total", "Lucro_Liquido", "Margem_Final_%", "Markup_%"
     ]
-
-    # Filtra colunas que realmente existem no df
-    cols_existentes = [c for c in colunas_vis if c in df.columns]
-
-    st.dataframe(
-        df[cols_existentes],
-        use_container_width=True,
-        height=450
-    )
-
-# === ADICIONA A COLUNA UNIDADES ===
-if "Unidades" not in df.columns:
-    df["Unidades"] = 1
-
-# === EXPORTAÇÃO FINAL (texto topo, comentários, fórmulas e formatação) ===
-colunas_exportar = [
-    "Venda","SKU","Tipo_Anuncio","Unidades",
-    "Valor_Venda","Valor_Recebido",
-    "Tarifa_Venda","Tarifa_Percentual_%","Tarifa_Fixa_R$","Tarifa_Total_R$",
-    "Tarifa_Envio","Cancelamentos",
-    "Custo_Embalagem","Custo_Fiscal","Receita_Envio",
-    "Lucro_Bruto","Lucro_Real","Margem_Liquida_%",
-    "Custo_Produto","Custo_Produto_Total",
-    "Lucro_Liquido","Margem_Final_%","Markup_%",
-    "Origem_Pacote","Status"
-]
-df_export = df[[c for c in colunas_exportar if c in df.columns]].copy()
-
-# Converte colunas % para fração de forma segura (sem estourar 6000%)
-def to_fraction(s):
-    v = pd.to_numeric(s, errors="coerce")
-    if v.max(skipna=True) is not None and v.max(skipna=True) > 1:
-        v = v / 100.0
-    return v
-
-for c in [x for x in ["Tarifa_Percentual_%","Margem_Liquida_%","Margem_Final_%","Markup_%"] if x in df_export.columns]:
-    df_export[c] = to_fraction(df_export[c])
-
-# Texto explicativo (topo) — mantém cabeçalho e fórmulas alinhados
-topo_texto = (
-    "⚙️ Estrutura correta e interpretação:\n"
-    "• Lucro_Bruto = Valor_Venda + Receita_Envio − Tarifa_Venda − Tarifa_Envio\n"
-    "• Lucro_Real  = Lucro_Bruto − Custo_Embalagem − Custo_Fiscal\n"
-    "• Margem_Liquida_% = Lucro_Real ÷ Valor_Venda\n"
-    "• Lucro_Liquido = Lucro_Real − Custo_Produto_Total\n"
-    "• Margem_Final_% = Lucro_Liquido ÷ Valor_Venda\n"
-    "• Markup_% = Lucro_Liquido ÷ Custo_Produto_Total\n"
-    "Observações:\n"
-    "– Em pacotes, Custo_Embalagem é rateado entre os itens; a linha-mãe mostra o total do pacote.\n"
-    "– Tarifa_Venda é apenas a parte percentual; Tarifa_Total_R$ = percentual + tarifa fixa.\n"
-)
-
-output = BytesIO()
-with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-    wb = writer.book
-    # Começa a escrever dados na linha 4 (índice 3), deixando 3 linhas para o texto
-    startrow = 3
-    df_export.to_excel(writer, index=False, sheet_name="Auditoria", startrow=startrow)
-    ws = writer.sheets["Auditoria"]
-
-    # Texto de topo (linhas 1-3)
-    ws.merge_range("A1:Z1", "Auditoria Financeira Mercado Livre", wb.add_format({"bold": True, "font_size": 14}))
-    ws.merge_range("A2:Z3", topo_texto, wb.add_format({"text_wrap": True, "valign": "top"}))
-
-    # Comentários no cabeçalho
-    comments = {
-        "Venda":"ID da venda no ML.",
-        "SKU":"Código interno (ou composição em pacotes).",
-        "Tipo_Anuncio":"Clássico (12%), Premium (17%) ou Agrupado (Pacotes).",
-        "Unidades":"Quantidade comprada do item.",
-        "Valor_Venda":"Preço unitário × Unidades (por item).",
-        "Valor_Recebido":"Repasse líquido do ML atribuído ao item.",
-        "Tarifa_Venda":"Somente a parte percentual do ML.",
-        "Tarifa_Percentual_%":"Percentual do ML (fração).",
-        "Tarifa_Fixa_R$":"Tarifa fixa por unidade conforme faixa de preço.",
-        "Tarifa_Total_R$":"Tarifa_Venda + Tarifa_Fixa_R$.",
-        "Tarifa_Envio":"Parcela do frete atribuída ao item.",
-        "Cancelamentos":"Reembolsos/cancelamentos.",
-        "Custo_Embalagem":"Em pacotes é rateado entre os itens; na linha-mãe é o total.",
-        "Custo_Fiscal":"% configurável sobre Valor_Venda.",
-        "Receita_Envio":"Receita recebida do frete (se houver).",
-        "Lucro_Bruto":"Valor_Venda + Receita_Envio − Tarifa_Venda − Tarifa_Envio.",
-        "Lucro_Real":"Lucro_Bruto − Custo_Embalagem − Custo_Fiscal.",
-        "Margem_Liquida_%":"Lucro_Real ÷ Valor_Venda.",
-        "Custo_Produto":"Custo unitário (planilha).",
-        "Custo_Produto_Total":"Custo_Produto × Unidades.",
-        "Lucro_Liquido":"Lucro_Real − Custo_Produto_Total.",
-        "Margem_Final_%":"Lucro_Liquido ÷ Valor_Venda.",
-        "Markup_%":"Lucro_Liquido ÷ Custo_Produto_Total.",
-        "Origem_Pacote":"ID do pacote (se aplicável).",
-        "Status":"Normal, Acima da Margem, Cancelamento, etc."
-    }
-    headers = list(df_export.columns)
-    for j, col in enumerate(headers):
-        if col in comments:
-            ws.write_comment(startrow, j, comments[col])
-
-    # Formatação de colunas
-    fmt_money = wb.add_format({'num_format': 'R$ #,##0.00'})
-    fmt_pct   = wb.add_format({'num_format': '0.00%'})
-    fmt_int   = wb.add_format({'num_format': '0'})
-    fmt_txt   = wb.add_format()
-
-    for j, col in enumerate(headers):
-        if col in ["Unidades"]:
-            ws.set_column(j, j, 10, fmt_int)
-        elif "%" in col:
-            ws.set_column(j, j, 12, fmt_pct)
-        elif any(x in col for x in ["Valor","Lucro","Custo","Tarifa","Receita"]):
-            ws.set_column(j, j, 16, fmt_money)
-        else:
-            ws.set_column(j, j, 18, fmt_txt)
-
-    # ► Fórmulas (coerentes com startrow)
-    n = len(df_export)
-
-    def col_letter(idx):  # 0-based -> 'A', 'B', ...
-        s = ""; idx += 1
-        while idx:
-            idx, r = divmod(idx-1, 26)
-            s = chr(65+r) + s
-        return s
-
-    col_idx = {headers[i]: i for i in range(len(headers))}
-    def C(name): return col_letter(col_idx[name])
-
-    # Linhas com dados no Excel começam em startrow+2 (cabeçalho ocupa startrow+1)
-    first_r = startrow + 2
-    last_r  = startrow + 1 + n
-
-    for r in range(first_r, last_r+1):
-        if all(k in col_idx for k in ["Lucro_Bruto","Valor_Venda","Receita_Envio","Tarifa_Venda","Tarifa_Envio"]):
-            ws.write_formula(f"{C('Lucro_Bruto')}{r}",
-                             f"=IFERROR({C('Valor_Venda')}{r}+{C('Receita_Envio')}{r}-{C('Tarifa_Venda')}{r}-{C('Tarifa_Envio')}{r},0)")
-        if all(k in col_idx for k in ["Lucro_Real","Lucro_Bruto","Custo_Embalagem","Custo_Fiscal"]):
-            ws.write_formula(f"{C('Lucro_Real')}{r}",
-                             f"=IFERROR({C('Lucro_Bruto')}{r}-{C('Custo_Embalagem')}{r}-{C('Custo_Fiscal')}{r},0)")
-        if all(k in col_idx for k in ["Margem_Liquida_%","Lucro_Real","Valor_Venda"]):
-            ws.write_formula(f"{C('Margem_Liquida_%')}{r}",
-                             f"=IFERROR({C('Lucro_Real')}{r}/{C('Valor_Venda')}{r},0)")
-        if all(k in col_idx for k in ["Lucro_Liquido","Lucro_Real","Custo_Produto_Total"]):
-            ws.write_formula(f"{C('Lucro_Liquido')}{r}",
-                             f"=IFERROR({C('Lucro_Real')}{r}-{C('Custo_Produto_Total')}{r},0)")
-        if all(k in col_idx for k in ["Margem_Final_%","Lucro_Liquido","Valor_Venda"]):
-            ws.write_formula(f"{C('Margem_Final_%')}{r}",
-                             f"=IFERROR({C('Lucro_Liquido')}{r}/{C('Valor_Venda')}{r},0)")
-        if all(k in col_idx for k in ["Markup_%","Lucro_Liquido","Custo_Produto_Total"]):
-            ws.write_formula(f"{C('Markup_%')}{r}",
-                             f"=IFERROR({C('Lucro_Liquido')}{r}/{C('Custo_Produto_Total')}{r},0)")
-
-    # Congela cabeçalho (abaixo do texto)
-    ws.freeze_panes(startrow+1, 0)
     
-output.seek(0)
-st.download_button(
-    label="⬇️ Baixar Relatório XLSX (com fórmulas, % corretos, comentários e texto de topo)",
-    data=output,
-    file_name=f"Auditoria_ML_{datetime.now().strftime('%d-%m-%Y_%H-%M-%S')}.xlsx",
-    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-)
+    # Filtra as colunas existentes
+    colunas_finais = [c for c in colunas_vis if c in df.columns]
 
+    st.dataframe(df[colunas_finais].sort_values("Data", ascending=False), use_container_width=True)
 
-
+    # Exportar DataFrame Completo
+    output_df = BytesIO()
+    with pd.ExcelWriter(output_df, engine="xlsxwriter") as writer:
+        df.to_excel(writer, index=False, sheet_name="Auditoria_Completa")
+    output_df.seek(0)
+    st.download_button(
+        label="⬇️ Exportar Tabela Completa (Excel)",
+        data=output_df,
+        file_name=f"Auditoria_ML_Completa_{datetime.now().strftime('%d-%m-%Y_%H-%M-%S')}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
