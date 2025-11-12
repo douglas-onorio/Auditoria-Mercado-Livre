@@ -861,7 +861,14 @@ if uploaded_file and df is not None:
     with pd.ExcelWriter(output_df, engine="xlsxwriter") as writer:
         df.to_excel(writer, index=False, sheet_name="Auditoria_Completa")
     output_df.seek(0)
-    # === EXPORTAÇÃO FINAL COM ABA DE AJUDA ===
+    # === NORMALIZAÇÃO DE MARGENS / MARKUP ===
+    df.loc[df["Valor_Venda"] <= 0, ["Margem_Liquida_%", "Margem_Final_%"]] = 0
+    df.loc[df["Custo_Produto_Total"] <= 0, ["Markup_%"]] = 0
+    for col in ["Margem_Liquida_%", "Margem_Final_%", "Markup_%"]:
+        if col in df.columns:
+            df[col] = df[col].clip(lower=-500, upper=500).round(2)
+
+    # === EXPORTAÇÃO FINAL COMPLETA COM FÓRMULAS E CORES ===
     st.markdown("---")
     st.subheader("📤 Exportar Relatório de Auditoria Completo")
 
@@ -878,68 +885,120 @@ if uploaded_file and df is not None:
     ]
     df_export = df[[c for c in colunas_exportar if c in df.columns]].copy()
 
+    # Converte % para fração, mas só se ainda estiver em escala 0–100
+    for col in ["Tarifa_Percentual_%", "Margem_Liquida_%", "Margem_Final_%", "Markup_%"]:
+        if col in df_export.columns:
+            df_export[col] = pd.to_numeric(df_export[col], errors="coerce").apply(lambda x: x/100 if x > 1 else x)
+
     output = BytesIO()
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-        # === ABA PRINCIPAL ===
         df_export.to_excel(writer, index=False, sheet_name="Auditoria")
-        ws = writer.sheets["Auditoria"]
         wb = writer.book
+        ws = writer.sheets["Auditoria"]
 
-        # === FORMATAÇÃO ===
+        # === FORMATOS ===
         fmt_header = wb.add_format({
             "bold": True, "bg_color": "#FFD966", "align": "center",
             "valign": "vcenter", "border": 1
         })
-        fmt_money = wb.add_format({'num_format': 'R$ #,##0.00', "border": 1})
-        fmt_pct = wb.add_format({'num_format': '0.00%', "border": 1})
-        fmt_int = wb.add_format({'num_format': '0', "border": 1})
-        fmt_txt = wb.add_format({"border": 1})
+        fmt_money = wb.add_format({'num_format': 'R$ #,##0.00', 'border': 1})
+        fmt_pct = wb.add_format({'num_format': '0.00%', 'border': 1})
+        fmt_int = wb.add_format({'num_format': '0', 'border': 1})
+        fmt_txt = wb.add_format({'border': 1})
+        fmt_pacote = wb.add_format({'bg_color': '#D9E1F2', 'border': 1})
+        fmt_item = wb.add_format({'bg_color': '#FCE4D6', 'border': 1})
 
         ws.set_row(0, 22, fmt_header)
         for j, col in enumerate(df_export.columns):
-            if "Valor" in col or "Lucro" in col or "Custo" in col or "Tarifa" in col or "Receita" in col:
-                ws.set_column(j, j, 16, fmt_money)
+            if col in ["Unidades"]:
+                ws.set_column(j, j, 10, fmt_int)
             elif "%" in col:
                 ws.set_column(j, j, 12, fmt_pct)
-            elif col in ["Unidades"]:
-                ws.set_column(j, j, 10, fmt_int)
+            elif any(x in col for x in ["Valor", "Lucro", "Custo", "Tarifa", "Receita"]) and "%" not in col:
+                ws.set_column(j, j, 16, fmt_money)
             else:
                 ws.set_column(j, j, 20, fmt_txt)
 
+        # === COLORIR LINHAS DE PACOTES ===
+        for i, (_, row) in enumerate(df_export.iterrows(), start=1):
+            tipo = str(row.get("Tipo_Anuncio", "")).lower()
+            if "agrupado (pacotes" in tipo:
+                ws.set_row(i, None, fmt_pacote)
+            elif "agrupado (item" in tipo:
+                ws.set_row(i, None, fmt_item)
+
+        # === INSERIR FÓRMULAS NAS COLUNAS CHAVE ===
+        headers = list(df_export.columns)
+        n = len(df_export)
+        startrow = 1  # header ocupa linha 0
+        def col_letter(idx):
+            s = ""; idx += 1
+            while idx:
+                idx, r = divmod(idx-1, 26)
+                s = chr(65+r) + s
+            return s
+        col_idx = {headers[i]: i for i in range(len(headers))}
+        def C(name): return col_letter(col_idx[name])
+
+        for r in range(startrow+1, startrow + n + 1):
+            # Lucro_Bruto = Valor_Venda + Receita_Envio - Tarifa_Total_R$ - Tarifa_Envio
+            if all(k in col_idx for k in ["Lucro_Bruto","Valor_Venda","Receita_Envio","Tarifa_Total_R$","Tarifa_Envio"]):
+                ws.write_formula(f"{C('Lucro_Bruto')}{r}", 
+                                 f"=IFERROR({C('Valor_Venda')}{r}+{C('Receita_Envio')}{r}-{C('Tarifa_Total_R$')}{r}-{C('Tarifa_Envio')}{r},0)")
+            # Lucro_Real = Lucro_Bruto - Custo_Embalagem - Custo_Fiscal
+            if all(k in col_idx for k in ["Lucro_Real","Lucro_Bruto","Custo_Embalagem","Custo_Fiscal"]):
+                ws.write_formula(f"{C('Lucro_Real')}{r}", 
+                                 f"=IFERROR({C('Lucro_Bruto')}{r}-{C('Custo_Embalagem')}{r}-{C('Custo_Fiscal')}{r},0)")
+            # Margem_Liquida_% = Lucro_Real / Valor_Venda
+            if all(k in col_idx for k in ["Margem_Liquida_%","Lucro_Real","Valor_Venda"]):
+                ws.write_formula(f"{C('Margem_Liquida_%')}{r}", 
+                                 f"=IFERROR({C('Lucro_Real')}{r}/{C('Valor_Venda')}{r},0)")
+            # Lucro_Liquido = Lucro_Real - Custo_Produto_Total
+            if all(k in col_idx for k in ["Lucro_Liquido","Lucro_Real","Custo_Produto_Total"]):
+                ws.write_formula(f"{C('Lucro_Liquido')}{r}", 
+                                 f"=IFERROR({C('Lucro_Real')}{r}-{C('Custo_Produto_Total')}{r},0)")
+            # Margem_Final_% = Lucro_Liquido / Valor_Venda
+            if all(k in col_idx for k in ["Margem_Final_%","Lucro_Liquido","Valor_Venda"]):
+                ws.write_formula(f"{C('Margem_Final_%')}{r}", 
+                                 f"=IFERROR({C('Lucro_Liquido')}{r}/{C('Valor_Venda')}{r},0)")
+            # Markup_% = Lucro_Liquido / Custo_Produto_Total
+            if all(k in col_idx for k in ["Markup_%","Lucro_Liquido","Custo_Produto_Total"]):
+                ws.write_formula(f"{C('Markup_%')}{r}", 
+                                 f"=IFERROR({C('Lucro_Liquido')}{r}/{C('Custo_Produto_Total')}{r},0)")
+
         # === ABA DE AJUDA ===
         ajuda_data = [
-            ["Coluna", "Descrição", "Exemplo"],
-            ["Venda", "Número de identificação da venda no Mercado Livre.", "202509110932"],
-            ["SKU", "Código interno ou SKU composto (para pacotes).", "3888-3937"],
-            ["Unidades", "Quantidade vendida.", "2"],
-            ["Tipo_Anuncio", "Tipo de anúncio: Clássico (12%) ou Premium (17%).", "Premium"],
-            ["Valor_Venda", "Preço total de venda (unitário x unidades).", "162,49"],
-            ["Valor_Recebido", "Valor líquido repassado pelo ML após tarifas.", "140,00"],
-            ["Tarifa_Venda", "Tarifa percentual do ML aplicada à venda.", "19,49"],
-            ["Tarifa_Percentual_%", "Percentual cobrado pelo ML.", "12%"],
-            ["Tarifa_Fixa_R$", "Tarifa fixa do ML por unidade vendida.", "6,75"],
-            ["Tarifa_Total_R$", "Soma da tarifa percentual + tarifa fixa.", "26,24"],
-            ["Tarifa_Envio", "Custo de envio (frete) pago pelo vendedor.", "15,71"],
-            ["Cancelamentos", "Valores reembolsados ou cancelados.", "0,00"],
-            ["Custo_Embalagem", "Custo fixo ou rateado por pacote.", "2,50"],
-            ["Custo_Fiscal", "Custo percentual fiscal aplicado sobre a venda.", "16,25"],
-            ["Receita_Envio", "Valor recebido do comprador referente ao frete.", "10,00"],
-            ["Lucro_Bruto", "Lucro antes dos custos fiscais e embalagem.", "135,25"],
-            ["Lucro_Real", "Lucro após embalagem e custos fiscais.", "116,50"],
-            ["Margem_Liquida_%", "Lucro_Real dividido por Valor_Venda.", "28%"],
-            ["Custo_Produto_Unitario", "Custo de aquisição unitário do item.", "95,00"],
-            ["Custo_Produto_Total", "Custo total do item (unitário × unidades).", "190,00"],
-            ["Lucro_Liquido", "Lucro final após todos os custos.", "55,00"],
-            ["Margem_Final_%", "Lucro_Liquido ÷ Valor_Venda.", "25%"],
-            ["Markup_%", "Lucro_Liquido ÷ Custo_Produto_Total.", "29%"],
-            ["Origem_Pacote", "Identificação de pacotes (pais e filhos).", "123456-PACOTE"],
-            ["Status", "Classificação da venda (Normal, Fora da Margem, Cancelamento, etc.).", "✅ Normal"]
+            ["Coluna","Descrição","Exemplo"],
+            ["Venda","Número da venda no Mercado Livre.","200009741628937"],
+            ["SKU","Código interno ou SKU composto (pacote).","3888-3937"],
+            ["Unidades","Quantidade vendida.","2"],
+            ["Tipo_Anuncio","Clássico (12%), Premium (17%) ou Agrupado.","Premium"],
+            ["Valor_Venda","Preço total da venda.","162,49"],
+            ["Valor_Recebido","Valor líquido após tarifas.","140,00"],
+            ["Tarifa_Venda","Tarifa percentual do ML.","19,49"],
+            ["Tarifa_Percentual_%","Percentual da tarifa ML.","12%"],
+            ["Tarifa_Fixa_R$","Tarifa fixa cobrada por unidade.","6,75"],
+            ["Tarifa_Total_R$","Soma da tarifa percentual + fixa.","26,24"],
+            ["Tarifa_Envio","Custo de envio pago.","15,71"],
+            ["Cancelamentos","Valores reembolsados.","0,00"],
+            ["Custo_Embalagem","Custo fixo ou rateado por pacote.","2,50"],
+            ["Custo_Fiscal","% fiscal sobre venda.","16,25"],
+            ["Receita_Envio","Valor recebido do comprador (frete).","10,00"],
+            ["Lucro_Bruto","Valor_Venda + Receita_Envio − Tarifas − Frete.","135,25"],
+            ["Lucro_Real","Lucro_Bruto − Custo_Embalagem − Custo_Fiscal.","116,50"],
+            ["Margem_Liquida_%","Lucro_Real ÷ Valor_Venda.","28%"],
+            ["Custo_Produto_Unitario","Custo de aquisição unitário.","95,00"],
+            ["Custo_Produto_Total","Custo total do item.","190,00"],
+            ["Lucro_Liquido","Lucro_Real − Custo_Produto_Total.","55,00"],
+            ["Margem_Final_%","Lucro_Liquido ÷ Valor_Venda.","25%"],
+            ["Markup_%","Lucro_Liquido ÷ Custo_Produto_Total.","29%"],
+            ["Origem_Pacote","Identificador do pacote (mãe/filho).","200009741628937-PACOTE"],
+            ["Status","Normal, Fora da Margem ou Cancelamento.","✅ Normal"]
         ]
         df_ajuda = pd.DataFrame(ajuda_data[1:], columns=ajuda_data[0])
         df_ajuda.to_excel(writer, index=False, sheet_name="AJUDA")
         ws_ajuda = writer.sheets["AJUDA"]
 
-        # === FORMATAÇÃO DA ABA AJUDA ===
         fmt_header_ajuda = wb.add_format({
             "bold": True, "bg_color": "#92D050", "align": "center", "valign": "vcenter", "border": 1
         })
@@ -951,13 +1010,9 @@ if uploaded_file and df is not None:
         ws_ajuda.set_column("B:B", 80, fmt_text_ajuda)
         ws_ajuda.set_column("C:C", 25, fmt_exemplo)
 
-        ws_ajuda.write("A1", "Coluna")
-        ws_ajuda.write("B1", "Descrição")
-        ws_ajuda.write("C1", "Exemplo")
-
     output.seek(0)
     st.download_button(
-        label="⬇️ Baixar Relatório XLSX (com aba de AJUDA explicativa)",
+        label="⬇️ Baixar Relatório XLSX (com fórmulas, cores e aba AJUDA explicativa)",
         data=output,
         file_name=f"Auditoria_ML_{datetime.now().strftime('%d-%m-%Y_%H-%M-%S')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
