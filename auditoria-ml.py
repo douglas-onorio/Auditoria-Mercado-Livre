@@ -915,25 +915,25 @@ if uploaded_file and df is not None:
         st.markdown("---")
         st.subheader("📤 Exportar Relatório de Auditoria Completo")
     
-    colunas_exportar = [
-        "Venda", "SKU", "Unidades", "Tipo_Anuncio",
-        "Valor_Venda", "Valor_Recebido",
-        "Tarifa_Venda", "Tarifa_Percentual_%", "Tarifa_Fixa_R$", "Tarifa_Total_R$",
-        "Tarifa_Envio", "Cancelamentos",
-        "Custo_Embalagem", "Custo_Fiscal", "Receita_Envio",
-        "Lucro_Bruto", "Lucro_Real", "Margem_Liquida_%",
-        "Custo_Produto_Unitario", "Custo_Produto_Total",
-        "Lucro_Liquido", "Margem_Final_%", "Markup_%",
-        "Origem_Pacote", "Status"
-    ]
-    df_export = df[[c for c in colunas_exportar if c in df.columns]].copy()
+        colunas_exportar = [
+            "Venda", "SKU", "Unidades", "Tipo_Anuncio",
+            "Valor_Venda", "Valor_Recebido",
+            "Tarifa_Venda", "Tarifa_Percentual_%", "Tarifa_Fixa_R$", "Tarifa_Total_R$",
+            "Tarifa_Envio", "Cancelamentos",
+            "Custo_Embalagem", "Custo_Fiscal", "Receita_Envio",
+            "Lucro_Bruto", "Lucro_Real", "Margem_Liquida_%",
+            "Custo_Produto_Unitario", "Custo_Produto_Total",
+            "Lucro_Liquido", "Margem_Final_%", "Markup_%",
+            "Origem_Pacote", "Status"
+        ]
+        df_export = df[[c for c in colunas_exportar if c in df.columns]].copy()
     
     # Converte % para fração ANTES de exportar
-    for col in ["Tarifa_Percentual_%", "Margem_Liquida_%", "Margem_Final_%", "Markup_%"]:
-        if col in df_export.columns:
-            df_export[col] = pd.to_numeric(df_export[col], errors='coerce').apply(lambda x: x / 100 if pd.notna(x) and abs(x) > 1 else x).fillna(0)
-    
-    output = BytesIO()
+        for col in ["Tarifa_Percentual_%", "Margem_Liquida_%", "Margem_Final_%", "Markup_%"]:
+            if col in df_export.columns:
+                df_export[col] = pd.to_numeric(df_export[col], errors='coerce').apply(lambda x: x / 100 if pd.notna(x) and abs(x) > 1 else x).fillna(0)
+        
+        output = BytesIO()
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
         df_export.to_excel(writer, index=False, sheet_name="Auditoria", header=False, startrow=1)
         wb = writer.book
