@@ -709,27 +709,24 @@ if uploaded_file and df is not None:
         
         # Exclui também os pais de pacotes
         mask_validas = ~df_validas["Estado"].astype(str).str.contains("Pacote de", case=False, na=False, regex=False)
-        df_validas = df_validas[mask_validas]
+        df_validas = df_validas[mask_validas]   
     
-    
-        # === MÉTRICAS FINAIS (CÁLCULO) ===
-        if custo_carregado:
-            lucro_total = df_validas["Lucro_Liquido"].sum()
-            prejuizo_total = abs(df_validas.loc[df_validas["Lucro_Liquido"] < 0, "Lucro_Liquido"].sum())
-            margem_media = df_validas["Margem_Final_%"].replace([np.inf, -np.inf], np.nan).mean()
-        else:
-            lucro_total = df_validas["Lucro_Real"].sum()
-            prejuizo_total = abs(df_validas.loc[df_validas["Lucro_Real"] < 0, "Lucro_Real"].sum())
-            margem_media = df_validas["Margem_Liquida_%"].replace([np.inf, -np.inf], np.nan).mean()
-    
-        receita_total = df_validas["Valor_Venda"].sum()
-        # A contagem de vendas deve ser feita no DF original, excluindo apenas cancelamentos corretos e pais de pacotes
-        total_vendas = len(df[~df["Estado"].astype(str).str.contains("Pacote de", case=False, na=False, regex=False)]) - cancelamentos
-        fora_margem = (df["Status"] == "⚠️ Acima da Margem").sum()
-        cancelamentos = (df["Status"] == "🟦 Cancelamento Correto").sum()
-    
+    # === MÉTRICAS FINAIS (CÁLCULO) ===
+    if custo_carregado:
+        lucro_total = df_validas["Lucro_Liquido"].sum()
+        prejuizo_total = abs(df_validas.loc[df_validas["Lucro_Liquido"] < 0, "Lucro_Liquido"].sum())
+        margem_media = df_validas["Margem_Final_%"].replace([np.inf, -np.inf], np.nan).mean()
+    else:
+        lucro_total = df_validas["Lucro_Real"].sum()
+        prejuizo_total = abs(df_validas.loc[df_validas["Lucro_Real"] < 0, "Lucro_Real"].sum())
+        margem_media = df_validas["Margem_Liquida_%"].replace([np.inf, -np.inf], np.nan).mean()
+
+    receita_total = df_validas["Valor_Venda"].sum()
+    total_vendas = len(df[~df["Estado"].astype(str).str.contains("Pacote de", case=False, na=False, regex=False)]) - cancelamentos
+    fora_margem = (df["Status"] == "⚠️ Acima da Margem").sum()
+    cancelamentos = (df["Status"] == "🟦 Cancelamento Correto").sum()
+
     # === MÉTRICAS FINAIS (EXIBIÇÃO) ===
-    # Este bloco usa as variáveis que agora estão inicializadas (0.0) ou calculadas
     col1, col2, col3, col4, col5, col6 = st.columns(6)
     col1.metric("Total de Vendas", total_vendas)
     col2.metric("Fora da Margem", fora_margem)
