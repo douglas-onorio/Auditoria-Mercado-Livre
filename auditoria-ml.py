@@ -712,28 +712,28 @@ if uploaded_file and df is not None:
         df_validas = df_validas[mask_validas]   
     
     # === MÉTRICAS FINAIS (CÁLCULO) ===
-    if custo_carregado:
-        lucro_total = df_validas["Lucro_Liquido"].sum()
-        prejuizo_total = abs(df_validas.loc[df_validas["Lucro_Liquido"] < 0, "Lucro_Liquido"].sum())
-        margem_media = df_validas["Margem_Final_%"].replace([np.inf, -np.inf], np.nan).mean()
-    else:
-        lucro_total = df_validas["Lucro_Real"].sum()
-        prejuizo_total = abs(df_validas.loc[df_validas["Lucro_Real"] < 0, "Lucro_Real"].sum())
-        margem_media = df_validas["Margem_Liquida_%"].replace([np.inf, -np.inf], np.nan).mean()
-
-    receita_total = df_validas["Valor_Venda"].sum()
-    total_vendas = len(df[~df["Estado"].astype(str).str.contains("Pacote de", case=False, na=False, regex=False)]) - cancelamentos
-    fora_margem = (df["Status"] == "⚠️ Acima da Margem").sum()
-    cancelamentos = (df["Status"] == "🟦 Cancelamento Correto").sum()
-
-    # === MÉTRICAS FINAIS (EXIBIÇÃO) ===
-    col1, col2, col3, col4, col5, col6 = st.columns(6)
-    col1.metric("Total de Vendas", total_vendas)
-    col2.metric("Fora da Margem", fora_margem)
-    col3.metric("Cancelamentos Corretos", cancelamentos)
-    col4.metric("Lucro Total (R$)", f"{lucro_total:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-    col5.metric("Margem Média (%)", f"{margem_media:.2f}%".replace(",", "X").replace(".", ",").replace("X", "."))
-    col6.metric("🔻 Prejuízo Total (R$)", f"{prejuizo_total:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+        if custo_carregado:
+            lucro_total = df_validas["Lucro_Liquido"].sum()
+            prejuizo_total = abs(df_validas.loc[df_validas["Lucro_Liquido"] < 0, "Lucro_Liquido"].sum())
+            margem_media = df_validas["Margem_Final_%"].replace([np.inf, -np.inf], np.nan).mean()
+        else:
+            lucro_total = df_validas["Lucro_Real"].sum()
+            prejuizo_total = abs(df_validas.loc[df_validas["Lucro_Real"] < 0, "Lucro_Real"].sum())
+            margem_media = df_validas["Margem_Liquida_%"].replace([np.inf, -np.inf], np.nan).mean()
+    
+        receita_total = df_validas["Valor_Venda"].sum()
+        total_vendas = len(df[~df["Estado"].astype(str).str.contains("Pacote de", case=False, na=False, regex=False)]) - cancelamentos
+        fora_margem = (df["Status"] == "⚠️ Acima da Margem").sum()
+        cancelamentos = (df["Status"] == "🟦 Cancelamento Correto").sum()
+    
+        # === MÉTRICAS FINAIS (EXIBIÇÃO) ===
+        col1, col2, col3, col4, col5, col6 = st.columns(6)
+        col1.metric("Total de Vendas", total_vendas)
+        col2.metric("Fora da Margem", fora_margem)
+        col3.metric("Cancelamentos Corretos", cancelamentos)
+        col4.metric("Lucro Total (R$)", f"{lucro_total:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+        col5.metric("Margem Média (%)", f"{margem_media:.2f}%".replace(",", "X").replace(".", ",").replace("X", "."))
+        col6.metric("🔻 Prejuízo Total (R$)", f"{prejuizo_total:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
     
     # Ajusta o formato de números para o padrão BR
     if uploaded_file and df is not None:
