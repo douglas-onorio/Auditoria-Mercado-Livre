@@ -929,12 +929,12 @@ if uploaded_file and df is not None:
         df_export = df[[c for c in colunas_exportar if c in df.columns]].copy()
     
         # Converte % para fração ANTES de exportar
-            for col in ["Tarifa_Percentual_%", "Margem_Liquida_%", "Margem_Final_%", "Markup_%"]:
-                if col in df_export.columns:
-                    df_export[col] = pd.to_numeric(df_export[col], errors='coerce').apply(lambda x: x / 100 if pd.notna(x) and abs(x) > 1 else x).fillna(0)
-            
-            output = BytesIO()
-        with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+        for col in ["Tarifa_Percentual_%", "Margem_Liquida_%", "Margem_Final_%", "Markup_%"]:
+            if col in df_export.columns:
+                df_export[col] = pd.to_numeric(df_export[col], errors='coerce').apply(lambda x: x / 100 if pd.notna(x) and abs(x) > 1 else x).fillna(0)
+        
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine="xlsxwriter") as writer: writer:
             df_export.to_excel(writer, index=False, sheet_name="Auditoria", header=False, startrow=1)
             wb = writer.book
             ws = writer.sheets["Auditoria"]
