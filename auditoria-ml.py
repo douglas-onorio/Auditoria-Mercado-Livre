@@ -934,7 +934,7 @@ if uploaded_file and df is not None:
                 df_export[col] = pd.to_numeric(df_export[col], errors='coerce').apply(lambda x: x / 100 if pd.notna(x) and abs(x) > 1 else x).fillna(0)
         
         output = BytesIO()
-        with pd.ExcelWriter(output, engine="xlsxwriter") as writer: writer:
+        with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
             df_export.to_excel(writer, index=False, sheet_name="Auditoria", header=False, startrow=1)
             wb = writer.book
             ws = writer.sheets["Auditoria"]
