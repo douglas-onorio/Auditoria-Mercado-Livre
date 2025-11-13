@@ -912,8 +912,8 @@ if uploaded_file and df is not None:
             ).clip(-500, 500).round(4)
     
     # === EXPORTAÇÃO FINAL COMPLETA COM FÓRMULAS E CORES (VERSÃO FINAL CORRIGIDA) ===
-    st.markdown("---")
-    st.subheader("📤 Exportar Relatório de Auditoria Completo")
+        st.markdown("---")
+        st.subheader("📤 Exportar Relatório de Auditoria Completo")
     
     colunas_exportar = [
         "Venda", "SKU", "Unidades", "Tipo_Anuncio",
