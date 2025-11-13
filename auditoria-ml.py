@@ -736,65 +736,65 @@ if uploaded_file and df is not None:
         col6.metric("🔻 Prejuízo Total (R$)", f"{prejuizo_total:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
     
     # Ajusta o formato de números para o padrão BR
-    if uploaded_file and df is not None:
-        # === ANÁLISE DE TIPOS DE ANÚNCIO ===
-        st.markdown("---")
-        st.subheader("📊 Análise por Tipo de Anúncio (Clássico x Premium)")
-    
-        if "Tipo_Anuncio" in df.columns:
-            # Corrige campos vazios e preenche pacotes
-            df["Tipo_Anuncio"] = (
-                df["Tipo_Anuncio"]
-                .astype(str)
-                .str.strip()
-                .replace(["nan", "None", ""], "Unitário/Simples") # Ajustado para refletir o que é um item não agrupado
-            )
-            
-            # Filtra as linhas 'mãe' de pacotes para o resumo estatístico
-            mask_nao_mae = ~df["Estado"].astype(str).str.contains("Pacote de", case=False, na=False, regex=False)
-            df_tipos = df[mask_nao_mae].copy()
-    
-            tipo_counts = df_tipos["Tipo_Anuncio"].value_counts(dropna=False).reset_index()
-            tipo_counts.columns = ["Tipo de Anúncio", "Quantidade"]
-            tipo_counts["% Participação"] = (
-                tipo_counts["Quantidade"] / tipo_counts["Quantidade"].sum() * 100
-            ).round(2)
-    
-            col1, col2 = st.columns(2)
-            col1.metric(
-                "Anúncios Clássicos",
-                int(
-                    tipo_counts.loc[
-                        tipo_counts["Tipo de Anúncio"].str.contains("Clássico", case=False, na=False),
-                        "Quantidade"
-                    ].sum()
-                ),
-            )
-            col2.metric(
-                "Anúncios Premium",
-                int(
-                    tipo_counts.loc[
-                        tipo_counts["Tipo de Anúncio"].str.contains("Premium", case=False, na=False),
-                        "Quantidade"
-                    ].sum()
-                ),
-            )
-    
-            st.dataframe(tipo_counts, use_container_width=True)
-    
-            # Exporta o resumo para Excel
-            output_tipos = BytesIO()
-            with pd.ExcelWriter(output_tipos, engine="xlsxwriter") as writer:
-                tipo_counts.to_excel(writer, index=False, sheet_name="Tipos_Anuncio")
-            output_tipos.seek(0)
-            st.download_button(
-                label="⬇️ Exportar Resumo de Tipos (Excel)",
-                data=output_tipos,
-                file_name=f"Resumo_Tipos_Anuncio_{datetime.now().strftime('%d-%m-%Y_%H-%M-%S')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )
-        else:
-            st.warning("⚠️ Nenhuma coluna de tipo de anúncio encontrada no arquivo enviado.")
+        if uploaded_file and df is not None:
+            # === ANÁLISE DE TIPOS DE ANÚNCIO ===
+            st.markdown("---")
+            st.subheader("📊 Análise por Tipo de Anúncio (Clássico x Premium)")
+        
+            if "Tipo_Anuncio" in df.columns:
+                # Corrige campos vazios e preenche pacotes
+                df["Tipo_Anuncio"] = (
+                    df["Tipo_Anuncio"]
+                    .astype(str)
+                    .str.strip()
+                    .replace(["nan", "None", ""], "Unitário/Simples") # Ajustado para refletir o que é um item não agrupado
+                )
+                
+                # Filtra as linhas 'mãe' de pacotes para o resumo estatístico
+                mask_nao_mae = ~df["Estado"].astype(str).str.contains("Pacote de", case=False, na=False, regex=False)
+                df_tipos = df[mask_nao_mae].copy()
+        
+                tipo_counts = df_tipos["Tipo_Anuncio"].value_counts(dropna=False).reset_index()
+                tipo_counts.columns = ["Tipo de Anúncio", "Quantidade"]
+                tipo_counts["% Participação"] = (
+                    tipo_counts["Quantidade"] / tipo_counts["Quantidade"].sum() * 100
+                ).round(2)
+        
+                col1, col2 = st.columns(2)
+                col1.metric(
+                    "Anúncios Clássicos",
+                    int(
+                        tipo_counts.loc[
+                            tipo_counts["Tipo de Anúncio"].str.contains("Clássico", case=False, na=False),
+                            "Quantidade"
+                        ].sum()
+                    ),
+                )
+                col2.metric(
+                    "Anúncios Premium",
+                    int(
+                        tipo_counts.loc[
+                            tipo_counts["Tipo de Anúncio"].str.contains("Premium", case=False, na=False),
+                            "Quantidade"
+                        ].sum()
+                    ),
+                )
+        
+                st.dataframe(tipo_counts, use_container_width=True)
+        
+                # Exporta o resumo para Excel
+                output_tipos = BytesIO()
+                with pd.ExcelWriter(output_tipos, engine="xlsxwriter") as writer:
+                    tipo_counts.to_excel(writer, index=False, sheet_name="Tipos_Anuncio")
+                output_tipos.seek(0)
+                st.download_button(
+                    label="⬇️ Exportar Resumo de Tipos (Excel)",
+                    data=output_tipos,
+                    file_name=f"Resumo_Tipos_Anuncio_{datetime.now().strftime('%d-%m-%Y_%H-%M-%S')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            else:
+                st.warning("⚠️ Nenhuma coluna de tipo de anúncio encontrada no arquivo enviado.")
     
         # === ALERTA DE PRODUTO ===
         st.markdown("---")
