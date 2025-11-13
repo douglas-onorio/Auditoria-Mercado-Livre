@@ -921,7 +921,7 @@ if uploaded_file and df is not None:
             "Tarifa_Venda", "Tarifa_Percentual_%", "Tarifa_Fixa_R$", "Tarifa_Total_R$",
             "Tarifa_Envio", "Cancelamentos",
             "Custo_Embalagem", "Custo_Fiscal", "Receita_Envio",
-            "Lucro_Bruto", "Lucro_Real(Recebo)", "Margem_Liquida_%",
+            "Lucro_Bruto", "Lucro_Real", "Margem_Liquida_%",
             "Custo_Produto_Unitario", "Custo_Produto_Total",
             "Lucro_Liquido", "Margem_Final_%", "Markup_%",
             "Origem_Pacote", "Status"
