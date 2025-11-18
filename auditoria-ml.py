@@ -197,7 +197,28 @@ st.subheader("💰 Custos de Produtos (Google Sheets)")
 custo_df = carregar_custos_google()
 if not custo_df.empty:
     # A limpeza aqui foi mantida, mas a junção de dados será feita mais tarde.
-    custo_df["SKU"] = custo_df["SKU"].astype(str).str.replace(r"[^\d]", "", regex=True)
+    def normalizar_sku_custos(v):
+            if pd.isna(v):
+        return ""
+
+    s = str(v).strip()
+
+    # Normaliza hífens Unicode
+    s = re.sub(r"[\u2010\u2011\u2012\u2013\u2014\u2015]", "-", s)
+
+    # Remove espaços e caracteres que não fazem parte de SKUs compostos
+    s = re.sub(r"[^\w\-]", "", s)
+
+    # Mantém C2..C12 e dígitos e hífens
+    s = re.sub(r"[^0-9A-Za-z\-]", "", s)
+
+    # Remove hífens duplicados
+    s = re.sub(r"-{2,}", "-", s)
+
+    return s.strip("-")
+
+custo_df["SKU"] = custo_df["SKU"].apply(normalizar_sku_custos)
+
 else:
     st.warning("⚠️ Nenhum custo encontrado. Você pode adicionar manualmente abaixo.")
 
