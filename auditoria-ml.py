@@ -483,22 +483,34 @@ if uploaded_file and df is not None:
                 
                 # Usa a Tarifa Total reportada pelo ML como referência para a validação
                 df.loc[df["Origem_Pacote"] == pacote, "Tarifa_Validada_ML"] = "✔️" if abs(soma_filhas_tarifas - tarifa_pai_ml_reportada) < 1.01 else "❌"
-    
-    
+        
         # === AJUSTE SKU ===
         def limpar_sku(valor):
             if pd.isna(valor):
                 return ""
-            valor = str(valor).strip()
-            # Mantém hífens (para pacotes) e remove apenas outros caracteres
-            valor = re.sub(r"[^\d\-]", "", valor)
-            # Evita limpar SKUs compostos (como 3888-3937)
-            if "-" not in valor:
-                valor = valor.lstrip("0") or "0"
-            return valor
-    
-        if "SKU" in df.columns:
-            df["SKU"] = df["SKU"].apply(limpar_sku)
+        
+            v = str(valor).strip()
+        
+            # Unifica qualquer tipo de hífen Unicode para hífen normal
+            v = re.sub(r"[\u2010\u2011\u2012\u2013\u2014\u2015]", "-", v)
+        
+            # Mantém apenas dígitos e hífens (agora normalizados)
+            v = re.sub(r"[^0-9\-]", "", v)
+        
+            # Remove hífens duplicados
+            v = re.sub(r"-{2,}", "-", v)
+        
+            # Remove hífen no começo/fim (ex: "-3937-4297-")
+            v = v.strip("-")
+        
+            # ⚠️ REGRA IMPORTANTE:
+            # Se o SKU contém hífen → NÃO remover zeros à esquerda.
+            # Porque isso destrói SKUs compostos.
+            if "-" in v:
+                return v
+        
+            # Caso seja SKU simples, remove zeros à esquerda normalmente
+            return v.lstrip("0") or "0"
     
         # === COMPLETA DADOS DE PACOTES COM SKUs E TÍTULOS AGRUPADOS ===
         for i, row in df.loc[mask_mae].iterrows():
