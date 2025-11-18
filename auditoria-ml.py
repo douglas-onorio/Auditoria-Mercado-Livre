@@ -196,33 +196,36 @@ st.subheader("💰 Custos de Produtos (Google Sheets)")
 
 custo_df = carregar_custos_google()
 if not custo_df.empty:
-    # A limpeza aqui foi mantida, mas a junção de dados será feita mais tarde.
+
+    # --- Função correta de normalização de SKU (para Google Sheets) ---
     def normalizar_sku_custos(v):
-            if pd.isna(v):
-        return ""
+        if pd.isna(v):
+            return ""
 
-    s = str(v).strip()
+        s = str(v).strip()
 
-    # Normaliza hífens Unicode
-    s = re.sub(r"[\u2010\u2011\u2012\u2013\u2014\u2015]", "-", s)
+        # Normaliza hífens Unicode para hífen normal
+        s = re.sub(r"[\u2010\u2011\u2012\u2013\u2014\u2015]", "-", s)
 
-    # Remove espaços e caracteres que não fazem parte de SKUs compostos
-    s = re.sub(r"[^\w\-]", "", s)
+        # Remove tudo que não for letra, número ou hífen (mantém C2..C12)
+        s = re.sub(r"[^0-9A-Za-z\-]", "", s)
 
-    # Mantém C2..C12 e dígitos e hífens
-    s = re.sub(r"[^0-9A-Za-z\-]", "", s)
+        # Remove hífens duplicados
+        s = re.sub(r"-{2,}", "-", s)
 
-    # Remove hífens duplicados
-    s = re.sub(r"-{2,}", "-", s)
+        # Remove hífen no início/fim
+        s = s.strip("-")
 
-    return s.strip("-")
+        return s
 
-custo_df["SKU"] = custo_df["SKU"].apply(normalizar_sku_custos)
+    # Aplica a nova limpeza correta para SKUs
+    custo_df["SKU"] = custo_df["SKU"].apply(normalizar_sku_custos)
 
 else:
     st.warning("⚠️ Nenhum custo encontrado. Você pode adicionar manualmente abaixo.")
 
 custos_editados = st.data_editor(custo_df, num_rows="dynamic", use_container_width=True)
+
 if st.button("💾 Atualizar custos no Google Sheets"):
     salvar_custos_google(custos_editados)
 
